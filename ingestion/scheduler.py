@@ -41,7 +41,10 @@ def main():
         ],
     )
 
-    scheduler = AsyncIOScheduler()
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    scheduler = AsyncIOScheduler(event_loop=loop)
     scheduler.add_job(
         collection_cycle,
         "interval",
@@ -56,8 +59,6 @@ def main():
     )
 
     scheduler.start()
-
-    loop = asyncio.new_event_loop()
     loop.create_task(collection_cycle())
     try:
         loop.run_forever()
