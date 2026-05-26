@@ -92,13 +92,13 @@
       }
     },
     {
-      "title": "Issue Categories",
+      "title": "Complaint Categories (👎 Not Recommended)",
       "type": "piechart",
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
-      "gridPos": { "h": 9, "w": 8, "x": 0, "y": 9 },
+      "gridPos": { "h": 9, "w": 6, "x": 0, "y": 9 },
       "targets": [
         {
-          "rawSql": "SELECT COUNT(*) FILTER (WHERE tag = 'anti-cheat') AS \"anti-cheat\", COUNT(*) FILTER (WHERE tag = 'server-stability') AS \"server-stability\", COUNT(*) FILTER (WHERE tag = 'optimization') AS \"optimization\", COUNT(*) FILTER (WHERE tag = 'game-balance') AS \"game-balance\", COUNT(*) FILTER (WHERE tag = 'new-content') AS \"new-content\", COUNT(*) FILTER (WHERE tag = 'matchmaking') AS \"matchmaking\", COUNT(*) FILTER (WHERE tag = 'bugs') AS \"bugs\", COUNT(*) FILTER (WHERE tag = 'monetization') AS \"monetization\", COUNT(*) FILTER (WHERE tag = 'general') AS \"general\" FROM posts, unnest(issue_tags) AS tag WHERE analyzed_at IS NOT NULL AND $__timeFilter(created_at);",
+          "rawSql": "SELECT COUNT(*) FILTER (WHERE tag = 'anti-cheat') AS \"anti-cheat\", COUNT(*) FILTER (WHERE tag = 'server-stability') AS \"server-stability\", COUNT(*) FILTER (WHERE tag = 'optimization') AS \"optimization\", COUNT(*) FILTER (WHERE tag = 'game-balance') AS \"game-balance\", COUNT(*) FILTER (WHERE tag = 'new-content') AS \"new-content\", COUNT(*) FILTER (WHERE tag = 'matchmaking') AS \"matchmaking\", COUNT(*) FILTER (WHERE tag = 'bugs') AS \"bugs\", COUNT(*) FILTER (WHERE tag = 'monetization') AS \"monetization\", COUNT(*) FILTER (WHERE tag = 'general') AS \"general\" FROM posts, unnest(issue_tags) AS tag WHERE recommended = false AND analyzed_at IS NOT NULL AND $__timeFilter(created_at);",
           "format": "table",
           "refId": "A"
         }
@@ -110,52 +110,34 @@
         "overrides": []
       },
       "options": {
-        "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] },
+        "legend": { "displayMode": "table", "placement": "bottom", "values": ["value", "percent"] },
         "pieType": "donut",
         "tooltip": { "mode": "single" }
       }
     },
     {
-      "title": "Recommended",
-      "type": "stat",
+      "title": "Praise Categories (👍 Recommended)",
+      "type": "piechart",
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
-      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 9 },
+      "gridPos": { "h": 9, "w": 6, "x": 6, "y": 9 },
       "targets": [
         {
-          "rawSql": "SELECT COUNT(*) AS recommended FROM posts WHERE recommended = true AND $__timeFilter(created_at);",
+          "rawSql": "SELECT COUNT(*) FILTER (WHERE tag = 'anti-cheat') AS \"anti-cheat\", COUNT(*) FILTER (WHERE tag = 'server-stability') AS \"server-stability\", COUNT(*) FILTER (WHERE tag = 'optimization') AS \"optimization\", COUNT(*) FILTER (WHERE tag = 'game-balance') AS \"game-balance\", COUNT(*) FILTER (WHERE tag = 'new-content') AS \"new-content\", COUNT(*) FILTER (WHERE tag = 'matchmaking') AS \"matchmaking\", COUNT(*) FILTER (WHERE tag = 'bugs') AS \"bugs\", COUNT(*) FILTER (WHERE tag = 'monetization') AS \"monetization\", COUNT(*) FILTER (WHERE tag = 'general') AS \"general\" FROM posts, unnest(issue_tags) AS tag WHERE recommended = true AND analyzed_at IS NOT NULL AND $__timeFilter(created_at);",
           "format": "table",
           "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "fixed", "fixedColor": "#73BF69" },
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "#73BF69", "value": null }] }
+          "color": { "mode": "palette-classic" }
         },
         "overrides": []
       },
-      "options": { "colorMode": "background", "textMode": "value_and_name" }
-    },
-    {
-      "title": "Not Recommended",
-      "type": "stat",
-      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
-      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 13 },
-      "targets": [
-        {
-          "rawSql": "SELECT COUNT(*) AS \"not recommended\" FROM posts WHERE recommended = false AND $__timeFilter(created_at);",
-          "format": "table",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "fixed", "fixedColor": "#F2495C" },
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "#F2495C", "value": null }] }
-        },
-        "overrides": []
-      },
-      "options": { "colorMode": "background", "textMode": "value_and_name" }
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "values": ["value", "percent"] },
+        "pieType": "donut",
+        "tooltip": { "mode": "single" }
+      }
     },
     {
       "title": "Recent Reviews",
