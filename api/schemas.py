@@ -12,6 +12,7 @@ class PostOut(BaseModel):
     content: str
     author: str | None
     url: str | None
+    recommended: bool | None
     sentiment: float | None
     issue_tags: list[str] | None
     created_at: datetime

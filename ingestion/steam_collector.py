@@ -17,7 +17,7 @@ async def collect_steam_reviews(count: int = 50) -> list[dict]:
     params = {
         "json": "1",
         "filter": "recent",
-        "language": "english",
+        "language": "all",
         "num_per_page": count,
         "purchase_type": "all",
     }
@@ -38,6 +38,7 @@ async def collect_steam_reviews(count: int = 50) -> list[dict]:
             "content": review["review"],
             "author": review["author"].get("steamid", "unknown"),
             "url": f"https://store.steampowered.com/app/{settings.steam_app_id}",
+            "recommended": review.get("voted_up", None),
             "created_at": datetime.fromtimestamp(
                 review["timestamp_created"], tz=timezone.utc
             ),

@@ -21,6 +21,7 @@ class Post(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     author: Mapped[str | None] = mapped_column(String(100))
     url: Mapped[str | None] = mapped_column(Text)
+    recommended: Mapped[bool | None] = mapped_column(nullable=True)
     sentiment: Mapped[float | None] = mapped_column(Float)
     issue_tags: Mapped[list[str] | None] = mapped_column(ARRAY(String(50)))
     embedding = mapped_column(Vector(1024), nullable=True)

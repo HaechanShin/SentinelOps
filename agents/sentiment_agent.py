@@ -19,29 +19,33 @@ SENTIMENT_LATENCY = Histogram(
     "sentiment_analysis_seconds", "Sentiment analysis latency"
 )
 
-SYSTEM_PROMPT = """You are a sentiment analysis expert for the PUBG gaming community.
-Analyze the given community post and return a JSON object with:
+SYSTEM_PROMPT = """You are a community issue classifier for PUBG (a battle royale game).
+Analyze the given Steam review and return a JSON object with:
 1. "sentiment": a float from -1.0 (very negative) to 1.0 (very positive)
-2. "issue_tags": pick 1-2 tags (never more than 2) from ONLY these values: ["bug", "server", "cheat", "performance", "matchmaking", "update", "praise"]
+2. "issue_tags": pick exactly 1 tag from ONLY these values: ["anti-cheat", "server-stability", "optimization", "game-balance", "new-content", "matchmaking", "bugs", "monetization", "general"]
 
 Sentiment scoring guide:
-- 0.7 to 1.0: clearly positive (enjoying the game, praising features)
-- 0.1 to 0.6: mildly positive or mixed-positive
-- -0.1 to 0.1: neutral, factual, or unclear
-- -0.6 to -0.1: mildly negative or mixed-negative
-- -1.0 to -0.7: clearly negative (angry, frustrated, demanding refund)
+- 0.7 to 1.0: clearly positive
+- 0.1 to 0.6: mildly positive or mixed
+- -0.1 to 0.1: neutral or unclear
+- -0.6 to -0.1: mildly negative
+- -1.0 to -0.7: clearly negative
 
-Tag rules:
-- Pick the single MOST relevant tag. Add a second ONLY if the post clearly covers two distinct topics.
-- "server": lag, disconnect, downtime, server crashes
-- "cheat": hackers, aimbots, cheater reports, anti-cheat
-- "bug": glitches, broken features, visual bugs
-- "performance": FPS drops, stuttering, optimization
-- "matchmaking": queue times, skill gaps, ranking issues
-- "update": patch feedback, balance changes, new content reactions
-- "praise": positive experience, compliments, recommendations
-- Non-English posts: analyze sentiment from tone/context. Use "praise" or the most fitting negative tag.
-- Very short or ambiguous posts (e.g. single words): sentiment 0.0, empty tags [].
+Tag definitions (pick the ONE best fit):
+- "anti-cheat": hackers, aimbots, wallhacks, cheater reports, anti-cheat system complaints
+- "server-stability": lag, high ping, disconnects, server crashes, desync, region issues
+- "optimization": FPS drops, stuttering, crashes to desktop, hardware performance, loading times
+- "game-balance": weapon balance, vehicle balance, circle/zone complaints, loot distribution
+- "new-content": reactions to maps, modes, skins, seasons, patches, events
+- "matchmaking": queue times, skill-based matchmaking, bots in lobbies, ranking system
+- "bugs": specific glitches, broken mechanics, visual/audio bugs, exploit reports
+- "monetization": pricing, battle pass value, crate/skin costs, paid content complaints
+- "general": overall game opinion, nostalgia, playtime milestones, recommendation without specific topic
+
+Rules:
+- Always pick exactly 1 tag, never 0 or 2+.
+- Non-English reviews: classify based on recognizable keywords, tone, and context.
+- Very short or single-character reviews: sentiment 0.0, tag "general".
 
 Return ONLY valid JSON, no other text."""
 
@@ -77,9 +81,12 @@ async def analyze_sentiment(content: str) -> dict:
     text = text[start:end]
 
     result = json.loads(text)
+    tags = result.get("issue_tags", [])
+    if isinstance(tags, str):
+        tags = [tags]
     return {
         "sentiment": max(-1.0, min(1.0, float(result["sentiment"]))),
-        "issue_tags": result.get("issue_tags", []),
+        "issue_tags": tags,
     }
 
 

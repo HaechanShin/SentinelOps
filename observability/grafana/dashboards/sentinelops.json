@@ -50,38 +50,55 @@
       }
     },
     {
-      "title": "Sentiment Distribution",
-      "type": "histogram",
+      "title": "Recommendation Ratio (Hourly)",
+      "type": "timeseries",
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
       "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
       "targets": [
         {
-          "rawSql": "SELECT sentiment FROM posts WHERE analyzed_at IS NOT NULL AND $__timeFilter(created_at);",
-          "format": "table",
+          "rawSql": "SELECT date_trunc('hour', created_at) AS time, ROUND(100.0 * COUNT(*) FILTER (WHERE recommended = true) / GREATEST(COUNT(*), 1), 1) AS \"recommend %\" FROM posts WHERE $__timeFilter(created_at) GROUP BY 1 ORDER BY 1;",
+          "format": "time_series",
           "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "fixed", "fixedColor": "#8AB8FF" }
+          "min": 0,
+          "max": 100,
+          "unit": "percent",
+          "color": { "mode": "fixed", "fixedColor": "#73BF69" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#F2495C", "value": null },
+              { "color": "#FF9830", "value": 30 },
+              { "color": "#FADE2A", "value": 50 },
+              { "color": "#73BF69", "value": 70 }
+            ]
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "gradientMode": "scheme",
+            "thresholdsStyle": { "mode": "area" },
+            "spanNulls": true
+          }
         },
         "overrides": []
       },
       "options": {
-        "bucketSize": 0.25,
-        "fillOpacity": 70,
-        "gradientMode": "scheme",
+        "legend": { "displayMode": "list", "placement": "bottom" },
         "tooltip": { "mode": "single" }
       }
     },
     {
-      "title": "Issue Tag Distribution",
+      "title": "Issue Categories",
       "type": "piechart",
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
       "gridPos": { "h": 9, "w": 8, "x": 0, "y": 9 },
       "targets": [
         {
-          "rawSql": "SELECT COUNT(*) FILTER (WHERE tag = 'bug') AS bug, COUNT(*) FILTER (WHERE tag = 'server') AS server, COUNT(*) FILTER (WHERE tag = 'cheat') AS cheat, COUNT(*) FILTER (WHERE tag = 'performance') AS performance, COUNT(*) FILTER (WHERE tag = 'matchmaking') AS matchmaking, COUNT(*) FILTER (WHERE tag = 'update') AS \"update\", COUNT(*) FILTER (WHERE tag = 'praise') AS praise FROM posts, unnest(issue_tags) AS tag WHERE analyzed_at IS NOT NULL AND $__timeFilter(created_at);",
+          "rawSql": "SELECT COUNT(*) FILTER (WHERE tag = 'anti-cheat') AS \"anti-cheat\", COUNT(*) FILTER (WHERE tag = 'server-stability') AS \"server-stability\", COUNT(*) FILTER (WHERE tag = 'optimization') AS \"optimization\", COUNT(*) FILTER (WHERE tag = 'game-balance') AS \"game-balance\", COUNT(*) FILTER (WHERE tag = 'new-content') AS \"new-content\", COUNT(*) FILTER (WHERE tag = 'matchmaking') AS \"matchmaking\", COUNT(*) FILTER (WHERE tag = 'bugs') AS \"bugs\", COUNT(*) FILTER (WHERE tag = 'monetization') AS \"monetization\", COUNT(*) FILTER (WHERE tag = 'general') AS \"general\" FROM posts, unnest(issue_tags) AS tag WHERE analyzed_at IS NOT NULL AND $__timeFilter(created_at);",
           "format": "table",
           "refId": "A"
         }
@@ -99,13 +116,13 @@
       }
     },
     {
-      "title": "Positive Posts",
+      "title": "Recommended",
       "type": "stat",
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
       "gridPos": { "h": 4, "w": 4, "x": 8, "y": 9 },
       "targets": [
         {
-          "rawSql": "SELECT COUNT(*) AS positive FROM posts WHERE analyzed_at IS NOT NULL AND sentiment > 0.1 AND $__timeFilter(created_at);",
+          "rawSql": "SELECT COUNT(*) AS recommended FROM posts WHERE recommended = true AND $__timeFilter(created_at);",
           "format": "table",
           "refId": "A"
         }
@@ -120,13 +137,13 @@
       "options": { "colorMode": "background", "textMode": "value_and_name" }
     },
     {
-      "title": "Negative Posts",
+      "title": "Not Recommended",
       "type": "stat",
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
       "gridPos": { "h": 4, "w": 4, "x": 8, "y": 13 },
       "targets": [
         {
-          "rawSql": "SELECT COUNT(*) AS negative FROM posts WHERE analyzed_at IS NOT NULL AND sentiment < -0.1 AND $__timeFilter(created_at);",
+          "rawSql": "SELECT COUNT(*) AS \"not recommended\" FROM posts WHERE recommended = false AND $__timeFilter(created_at);",
           "format": "table",
           "refId": "A"
         }
@@ -147,7 +164,7 @@
       "gridPos": { "h": 9, "w": 12, "x": 12, "y": 9 },
       "targets": [
         {
-          "rawSql": "SELECT source, LEFT(content, 200) AS content, sentiment, array_to_string(issue_tags, ', ') AS tags, created_at AS time FROM posts WHERE analyzed_at IS NOT NULL ORDER BY created_at DESC LIMIT 30;",
+          "rawSql": "SELECT CASE WHEN recommended THEN 'Y' ELSE 'N' END AS rec, LEFT(content, 200) AS content, sentiment, array_to_string(issue_tags, ', ') AS category, created_at AS time FROM posts WHERE analyzed_at IS NOT NULL ORDER BY created_at DESC LIMIT 30;",
           "format": "table",
           "refId": "A"
         }
@@ -155,6 +172,16 @@
       "fieldConfig": {
         "defaults": {},
         "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "rec" },
+            "properties": [
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } },
+              { "id": "mappings", "value": [
+                { "type": "value", "options": { "Y": { "text": "👍", "color": "#73BF69" }, "N": { "text": "👎", "color": "#F2495C" } } }
+              ]},
+              { "id": "custom.width", "value": 50 }
+            ]
+          },
           {
             "matcher": { "id": "byName", "options": "sentiment" },
             "properties": [
@@ -172,72 +199,122 @@
                   ]
                 }
               },
-              { "id": "custom.width", "value": 90 }
+              { "id": "custom.width", "value": 80 }
             ]
           },
           {
             "matcher": { "id": "byName", "options": "content" },
             "properties": [
-              { "id": "custom.width", "value": 400 }
+              { "id": "custom.width", "value": 380 }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "tags" },
+            "matcher": { "id": "byName", "options": "category" },
             "properties": [
-              { "id": "custom.width", "value": 140 }
-            ]
-          },
-          {
-            "matcher": { "id": "byName", "options": "source" },
-            "properties": [
-              { "id": "custom.width", "value": 70 }
+              { "id": "custom.width", "value": 130 }
             ]
           }
         ]
       }
     },
     {
-      "title": "Sentiment Analysis — Requests/sec",
-      "type": "timeseries",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "title": "Reviews Collected (Daily)",
+      "type": "barchart",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 18 },
       "targets": [
         {
-          "expr": "rate(sentiment_analysis_total[5m])",
-          "legendFormat": "requests/sec"
+          "rawSql": "SELECT date_trunc('day', created_at) AS time, COUNT(*) AS reviews FROM posts WHERE $__timeFilter(created_at) GROUP BY 1 ORDER BY 1;",
+          "format": "time_series",
+          "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps",
           "color": { "mode": "fixed", "fixedColor": "#8AB8FF" }
         },
         "overrides": []
+      },
+      "options": {
+        "barWidth": 0.6,
+        "tooltip": { "mode": "single" }
       }
     },
     {
-      "title": "Sentiment Analysis — Latency (p50 / p95 / p99)",
-      "type": "timeseries",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 18 },
+      "title": "Analysis Coverage",
+      "type": "stat",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 18 },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, rate(sentiment_analysis_seconds_bucket[5m]))",
-          "legendFormat": "p50"
-        },
-        {
-          "expr": "histogram_quantile(0.95, rate(sentiment_analysis_seconds_bucket[5m]))",
-          "legendFormat": "p95"
-        },
-        {
-          "expr": "histogram_quantile(0.99, rate(sentiment_analysis_seconds_bucket[5m]))",
-          "legendFormat": "p99"
+          "rawSql": "SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE analyzed_at IS NOT NULL) / GREATEST(COUNT(*), 1), 1) AS \"coverage %\" FROM posts;",
+          "format": "table",
+          "refId": "A"
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "s" },
+        "defaults": {
+          "unit": "percent",
+          "color": { "mode": "fixed", "fixedColor": "#73BF69" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "#F2495C", "value": null },
+            { "color": "#FF9830", "value": 50 },
+            { "color": "#73BF69", "value": 90 }
+          ]}
+        },
         "overrides": []
-      }
+      },
+      "options": { "colorMode": "background", "textMode": "value_and_name" }
+    },
+    {
+      "title": "Total Reviews",
+      "type": "stat",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 18 },
+      "targets": [
+        {
+          "rawSql": "SELECT COUNT(*) AS total FROM posts;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "#8AB8FF" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "#8AB8FF", "value": null }] }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "background", "textMode": "value_and_name" }
+    },
+    {
+      "title": "Alerts & Drafts",
+      "type": "stat",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 22 },
+      "targets": [
+        {
+          "rawSql": "SELECT COUNT(*) AS \"open alerts\" FROM alerts WHERE status = 'open';",
+          "format": "table",
+          "refId": "A"
+        },
+        {
+          "rawSql": "SELECT COUNT(*) AS \"pending drafts\" FROM drafts WHERE status = 'pending';",
+          "format": "table",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "#FF9830" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "#73BF69", "value": null },
+            { "color": "#FF9830", "value": 1 }
+          ]}
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "background", "textMode": "value_and_name" }
     }
   ],
   "schemaVersion": 39,
@@ -248,5 +325,5 @@
   "timezone": "browser",
   "title": "SentinelOps — Community Monitoring",
   "uid": "sentinelops-main",
-  "version": 4
+  "version": 5
 }

@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS posts (
     content     TEXT NOT NULL,
     author      VARCHAR(100),
     url         TEXT,
+    recommended BOOLEAN,
     sentiment   FLOAT,
     issue_tags  VARCHAR(50)[],
     embedding   vector(1024),
