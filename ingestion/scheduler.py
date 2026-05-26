@@ -5,7 +5,6 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from agents.graph import run_pipeline
 from config import settings
-from ingestion.reddit_collector import run_reddit_collection
 from ingestion.steam_collector import run_steam_collection
 
 logger = structlog.get_logger()
@@ -13,23 +12,20 @@ logger = structlog.get_logger()
 
 async def collection_cycle():
     logger.info("collection_cycle_start")
+    total_stored = 0
+
     try:
-        reddit_result = await run_reddit_collection()
         steam_result = await run_steam_collection()
-
-        total_stored = reddit_result["stored"] + steam_result["stored"]
-        logger.info(
-            "collection_cycle_complete",
-            reddit=reddit_result,
-            steam=steam_result,
-            total_new=total_stored,
-        )
-
-        if total_stored > 0:
-            await run_pipeline()
-
+        total_stored += steam_result["stored"]
+        logger.info("steam_collection_done", **steam_result)
     except Exception:
-        logger.exception("collection_cycle_error")
+        logger.exception("steam_collection_error")
+
+    if total_stored > 0:
+        try:
+            await run_pipeline()
+        except Exception:
+            logger.exception("pipeline_error")
 
 
 def main():

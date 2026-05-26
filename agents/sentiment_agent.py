@@ -22,15 +22,26 @@ SENTIMENT_LATENCY = Histogram(
 SYSTEM_PROMPT = """You are a sentiment analysis expert for the PUBG gaming community.
 Analyze the given community post and return a JSON object with:
 1. "sentiment": a float from -1.0 (very negative) to 1.0 (very positive)
-2. "issue_tags": a list of relevant tags from: ["bug", "server", "cheat", "update", "ban", "performance", "matchmaking", "content", "praise", "suggestion", "question"]
+2. "issue_tags": pick 1-2 tags (never more than 2) from ONLY these values: ["bug", "server", "cheat", "performance", "matchmaking", "update", "praise"]
 
-Consider gaming community context:
-- Server complaints, lag, disconnects → negative + "server"
-- Cheater reports → negative + "cheat"
-- Bug reports → negative/neutral + "bug"
-- Praise for updates → positive + "update" or "praise"
-- Balance complaints → negative + "update"
-- Performance issues → negative + "performance"
+Sentiment scoring guide:
+- 0.7 to 1.0: clearly positive (enjoying the game, praising features)
+- 0.1 to 0.6: mildly positive or mixed-positive
+- -0.1 to 0.1: neutral, factual, or unclear
+- -0.6 to -0.1: mildly negative or mixed-negative
+- -1.0 to -0.7: clearly negative (angry, frustrated, demanding refund)
+
+Tag rules:
+- Pick the single MOST relevant tag. Add a second ONLY if the post clearly covers two distinct topics.
+- "server": lag, disconnect, downtime, server crashes
+- "cheat": hackers, aimbots, cheater reports, anti-cheat
+- "bug": glitches, broken features, visual bugs
+- "performance": FPS drops, stuttering, optimization
+- "matchmaking": queue times, skill gaps, ranking issues
+- "update": patch feedback, balance changes, new content reactions
+- "praise": positive experience, compliments, recommendations
+- Non-English posts: analyze sentiment from tone/context. Use "praise" or the most fitting negative tag.
+- Very short or ambiguous posts (e.g. single words): sentiment 0.0, empty tags [].
 
 Return ONLY valid JSON, no other text."""
 
@@ -51,6 +62,19 @@ async def analyze_sentiment(content: str) -> dict:
 
     if text.startswith("```"):
         text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+
+    start = text.index("{")
+    depth = 0
+    end = start
+    for i, ch in enumerate(text[start:], start):
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+    text = text[start:end]
 
     result = json.loads(text)
     return {

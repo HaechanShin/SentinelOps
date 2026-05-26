@@ -1,12 +1,21 @@
 from contextlib import asynccontextmanager
+from secrets import compare_digest
 
 import structlog
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException, Request
 from prometheus_client import make_asgi_app
 
 from agents.graph import run_pipeline
 from api.routers import alerts, drafts, posts
 from config import settings
+
+
+async def verify_api_key(request: Request):
+    if not settings.api_secret_key:
+        return
+    api_key = request.headers.get("X-API-Key", "")
+    if not compare_digest(api_key, settings.api_secret_key):
+        raise HTTPException(status_code=401, detail="Invalid API key")
 
 structlog.configure(
     processors=[
@@ -46,7 +55,7 @@ async def health():
     return {"status": "ok", "service": "sentinelops"}
 
 
-@app.post("/api/v1/pipeline/run")
+@app.post("/api/v1/pipeline/run", dependencies=[Depends(verify_api_key)])
 async def trigger_pipeline():
     result = await run_pipeline()
     return {
@@ -78,6 +87,7 @@ async def dashboard_summary():
 
         source_stmt = (
             select(Post.source, func.count(Post.id))
+            .where(Post.analyzed_at.is_not(None))
             .where(Post.created_at >= since)
             .group_by(Post.source)
         )

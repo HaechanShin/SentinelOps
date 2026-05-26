@@ -3,9 +3,6 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     anthropic_api_key: str = ""
-    reddit_client_id: str = ""
-    reddit_client_secret: str = ""
-    reddit_user_agent: str = "SentinelOps/1.0"
     steam_api_key: str = ""
     steam_app_id: int = 578080
 
@@ -15,7 +12,11 @@ class Settings(BaseSettings):
 
     slack_bot_token: str = ""
     slack_signing_secret: str = ""
+    slack_app_token: str = ""
     slack_alert_channel: str = "#community-alerts"
+
+    api_secret_key: str = ""
+    internal_api_url: str = "http://app:8000"
 
     langchain_tracing_v2: bool = False
     langchain_api_key: str = ""

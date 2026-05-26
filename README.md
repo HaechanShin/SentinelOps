@@ -1,11 +1,11 @@
 # SentinelOps — PUBG Community AI Ops System
 
-Real-time community monitoring and response drafting system for PUBG. Collects data from Reddit and Steam, analyzes sentiment, detects issues, and provides AI-generated response drafts with approval-gated workflows.
+Real-time community monitoring and response drafting system for PUBG. Collects Steam reviews, analyzes sentiment, detects issues, and provides AI-generated response drafts with approval-gated workflows.
 
 ## Architecture
 
 ```
-Reddit/Steam → Data Ingestion → Sentiment Analysis Agent
+Steam Reviews → Data Ingestion → Sentiment Analysis Agent
                                         ↓
                                 Alert Detection Agent
                                         ↓
@@ -17,7 +17,7 @@ Reddit/Steam → Data Ingestion → Sentiment Analysis Agent
 ## Tech Stack
 
 - **Multi-Agent Framework:** LangGraph
-- **LLM:** Anthropic Claude API (claude-sonnet-4)
+- **LLM:** Anthropic Claude API (claude-sonnet-4-6)
 - **API Server:** FastAPI
 - **Database:** PostgreSQL + pgvector
 - **Message Queue:** Redis
@@ -32,7 +32,7 @@ Reddit/Steam → Data Ingestion → Sentiment Analysis Agent
 
 ```bash
 cp .env.example .env
-# Edit .env with your API keys
+# Edit .env with your API keys (Anthropic, Steam)
 ```
 
 ### 2. Run with Docker Compose
@@ -43,20 +43,13 @@ docker compose up --build
 
 This starts:
 - **API Server** at `http://localhost:8000` (FastAPI + Swagger docs at `/docs`)
-- **Worker** — scheduled data collection and pipeline runs
+- **Worker** — scheduled Steam review collection and pipeline runs
 - **Slack Bot** — interactive alert notifications
 - **MCP Server** at `http://localhost:8001`
 - **PostgreSQL** at `localhost:5432`
 - **Redis** at `localhost:6379`
 - **Prometheus** at `http://localhost:9090`
 - **Grafana** at `http://localhost:3000` (admin/admin)
-
-### 3. Seed Data
-
-```bash
-docker compose exec postgres psql -U sentinelops -d sentinelops -f /docker-entrypoint-initdb.d/init.sql
-cat db/seed_data/seed.sql | docker compose exec -T postgres psql -U sentinelops -d sentinelops
-```
 
 ## API Endpoints
 
@@ -71,7 +64,7 @@ cat db/seed_data/seed.sql | docker compose exec -T postgres psql -U sentinelops 
 | GET | `/api/v1/alerts/stats/summary` | Alert statistics |
 | GET | `/api/v1/drafts` | List response drafts |
 | POST | `/api/v1/drafts/{id}/review` | Approve/reject a draft |
-| POST | `/api/v1/pipeline/run` | Manually trigger pipeline |
+| POST | `/api/v1/pipeline/run` | Manually trigger pipeline (requires `X-API-Key` header) |
 | GET | `/api/v1/dashboard/summary` | Dashboard summary |
 
 ## MCP Server Tools
@@ -87,8 +80,8 @@ cat db/seed_data/seed.sql | docker compose exec -T postgres psql -U sentinelops 
 
 ## Pipeline Flow
 
-1. **Data Ingestion** — Collects posts from r/PUBATTLEGROUNDS and Steam reviews every 5 minutes
-2. **Sentiment Analysis** — Claude API analyzes each post for sentiment (-1.0 to 1.0) and issue tags
+1. **Data Ingestion** — Collects Steam reviews every 5 minutes
+2. **Sentiment Analysis** — Claude API analyzes each review for sentiment (-1.0 to 1.0) and issue tags
 3. **Alert Detection** — Rolling window analysis detects sentiment drops and keyword spikes
 4. **Response Drafting** — Generates 3 response drafts per alert (official, empathetic, concise)
 5. **Slack Notification** — Sends interactive messages with approve/edit/reject buttons
@@ -109,7 +102,6 @@ sentinelops/
 ├── docker-compose.yml
 ├── Dockerfile
 ├── ingestion/                 # Data collection
-│   ├── reddit_collector.py
 │   ├── steam_collector.py
 │   └── scheduler.py
 ├── agents/                    # LangGraph agents

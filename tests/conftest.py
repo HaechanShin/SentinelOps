@@ -28,27 +28,27 @@ def mock_anthropic():
 def sample_posts():
     return [
         {
-            "source": "reddit",
-            "external_id": "reddit_test_001",
-            "title": "Game is great after update",
-            "content": "Game is great after update! Love the new features.",
-            "author": "test_user_1",
-            "url": "https://reddit.com/r/PUBATTLEGROUNDS/test1",
-        },
-        {
-            "source": "reddit",
-            "external_id": "reddit_test_002",
-            "title": "Server issues again",
-            "content": "Server issues again, getting disconnected every game. This is unacceptable.",
-            "author": "test_user_2",
-            "url": "https://reddit.com/r/PUBATTLEGROUNDS/test2",
-        },
-        {
             "source": "steam",
             "external_id": "steam_test_001",
             "title": None,
-            "content": "Cheaters everywhere, literally unplayable. Reported 5 aimbotters today.",
+            "content": "Game is great after update! Love the new features.",
             "author": "steam_user_1",
+            "url": "https://store.steampowered.com/app/578080",
+        },
+        {
+            "source": "steam",
+            "external_id": "steam_test_002",
+            "title": None,
+            "content": "Server issues again, getting disconnected every game. This is unacceptable.",
+            "author": "steam_user_2",
+            "url": "https://store.steampowered.com/app/578080",
+        },
+        {
+            "source": "steam",
+            "external_id": "steam_test_003",
+            "title": None,
+            "content": "Cheaters everywhere, literally unplayable. Reported 5 aimbotters today.",
+            "author": "steam_user_3",
             "url": "https://store.steampowered.com/app/578080",
         },
     ]
@@ -68,10 +68,10 @@ def sample_alert():
             "representative_posts": [
                 {
                     "id": "post-1",
-                    "external_id": "reddit_test_002",
+                    "external_id": "steam_test_002",
                     "content": "Server issues again, getting disconnected every game.",
                     "sentiment": -0.8,
-                    "url": "https://reddit.com/r/PUBATTLEGROUNDS/test2",
+                    "url": "https://store.steampowered.com/app/578080",
                     "issue_tags": ["server"],
                 }
             ],
