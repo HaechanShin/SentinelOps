@@ -8,3 +8,16 @@ datasources:
     uid: prometheus
     isDefault: true
     editable: true
+
+  - name: PostgreSQL
+    type: grafana-postgresql-datasource
+    access: proxy
+    url: postgres:5432
+    uid: postgresql
+    jsonData:
+      database: sentinelops
+      sslmode: disable
+    secureJsonData:
+      password: sentinelops
+    user: sentinelops
+    editable: true

@@ -7,10 +7,97 @@
   "links": [],
   "panels": [
     {
+      "title": "Average Sentiment (Hourly)",
+      "type": "timeseries",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "rawSql": "SELECT date_trunc('hour', analyzed_at) AS time, AVG(sentiment) AS avg_sentiment, COUNT(*) AS post_count FROM posts WHERE analyzed_at IS NOT NULL AND $__timeFilter(analyzed_at) GROUP BY 1 ORDER BY 1;",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": -1,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": -1 },
+              { "color": "yellow", "value": -0.3 },
+              { "color": "green", "value": 0.3 }
+            ]
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Sentiment Distribution",
+      "type": "histogram",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "rawSql": "SELECT sentiment FROM posts WHERE analyzed_at IS NOT NULL AND $__timeFilter(analyzed_at);",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "bucketSize": 0.2,
+        "fillOpacity": 80
+      }
+    },
+    {
+      "title": "Issue Tag Counts",
+      "type": "barchart",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "rawSql": "SELECT tag, COUNT(*) AS count FROM posts, unnest(issue_tags) AS tag WHERE analyzed_at IS NOT NULL AND $__timeFilter(analyzed_at) GROUP BY tag ORDER BY count DESC;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Recent Posts",
+      "type": "table",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "rawSql": "SELECT source, LEFT(content, 80) AS content, sentiment, issue_tags, analyzed_at FROM posts WHERE analyzed_at IS NOT NULL ORDER BY analyzed_at DESC LIMIT 20;",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
       "title": "Sentiment Analysis — Requests/sec",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
       "targets": [
         {
           "expr": "rate(sentiment_analysis_total[5m])",
@@ -26,7 +113,7 @@
       "title": "Sentiment Analysis — Latency",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
       "targets": [
         {
           "expr": "histogram_quantile(0.50, rate(sentiment_analysis_seconds_bucket[5m]))",
@@ -50,7 +137,7 @@
       "title": "Alerts Triggered",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
       "targets": [
         {
           "expr": "increase(alerts_triggered_total[1h])",
@@ -62,7 +149,7 @@
       "title": "Drafts Generated",
       "type": "stat",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 8 },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 24 },
       "targets": [
         {
           "expr": "drafts_generated_total",
@@ -74,7 +161,7 @@
       "title": "Draft Generation — Latency",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 8 },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 24 },
       "targets": [
         {
           "expr": "histogram_quantile(0.95, rate(draft_generation_seconds_bucket[5m]))",
@@ -90,10 +177,10 @@
   "schemaVersion": 39,
   "tags": ["sentinelops", "pubg", "community"],
   "templating": { "list": [] },
-  "time": { "from": "now-6h", "to": "now" },
+  "time": { "from": "now-7d", "to": "now" },
   "timepicker": {},
   "timezone": "browser",
   "title": "SentinelOps — Community Monitoring",
   "uid": "sentinelops-main",
-  "version": 1
+  "version": 2
 }
