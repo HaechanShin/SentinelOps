@@ -53,7 +53,7 @@ async def generate_drafts(
     for tone_name, tone_instruction in tones:
         with DRAFT_LATENCY.time():
             response = await client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model="claude-sonnet-4-6",
                 max_tokens=512,
                 system=SYSTEM_PROMPT,
                 messages=[
@@ -83,7 +83,7 @@ async def evaluate_draft(draft_content: str, issue_context: str) -> dict:
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
 
     response = await client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-6",
         max_tokens=256,
         system="""You are an evaluation judge for community response drafts.
 Rate the following draft on these criteria (0.0 to 1.0):

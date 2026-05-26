@@ -40,7 +40,7 @@ async def analyze_sentiment(content: str) -> dict:
 
     with SENTIMENT_LATENCY.time():
         response = await client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=256,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": content[:2000]}],
