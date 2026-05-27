@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS posts (
     recommended BOOLEAN,
     sentiment   FLOAT,
     issue_tags  VARCHAR(50)[],
+    translated_content TEXT,
     embedding   vector(1024),
     created_at  TIMESTAMPTZ DEFAULT NOW(),
     analyzed_at TIMESTAMPTZ

@@ -146,7 +146,7 @@
       "gridPos": { "h": 9, "w": 12, "x": 12, "y": 9 },
       "targets": [
         {
-          "rawSql": "SELECT CASE WHEN recommended THEN 'Y' ELSE 'N' END AS rec, LEFT(content, 200) AS content, sentiment, array_to_string(issue_tags, ', ') AS category, created_at AS time FROM posts WHERE analyzed_at IS NOT NULL ORDER BY created_at DESC LIMIT 30;",
+          "rawSql": "SELECT CASE WHEN recommended THEN 'Y' ELSE 'N' END AS rec, LEFT(content, 200) AS content, LEFT(translated_content, 200) AS translated, sentiment, array_to_string(issue_tags, ', ') AS category, created_at AS time FROM posts WHERE analyzed_at IS NOT NULL ORDER BY created_at DESC LIMIT 30;",
           "format": "table",
           "refId": "A"
         }
@@ -187,7 +187,13 @@
           {
             "matcher": { "id": "byName", "options": "content" },
             "properties": [
-              { "id": "custom.width", "value": 380 }
+              { "id": "custom.width", "value": 280 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "translated" },
+            "properties": [
+              { "id": "custom.width", "value": 280 }
             ]
           },
           {

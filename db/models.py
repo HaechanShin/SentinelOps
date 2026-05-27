@@ -24,6 +24,7 @@ class Post(Base):
     recommended: Mapped[bool | None] = mapped_column(nullable=True)
     sentiment: Mapped[float | None] = mapped_column(Float)
     issue_tags: Mapped[list[str] | None] = mapped_column(ARRAY(String(50)))
+    translated_content: Mapped[str | None] = mapped_column(Text)
     embedding = mapped_column(Vector(1024), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

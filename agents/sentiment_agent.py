@@ -7,6 +7,7 @@ from prometheus_client import Counter, Histogram
 from sqlalchemy import select, update
 
 from config import settings
+from constants import DEFAULT_ISSUE_TAG, ISSUE_TAG_DESCRIPTIONS, ISSUE_TAGS, LEGACY_TAG_ALIASES
 from db.engine import AsyncSessionLocal
 from db.models import Post
 
@@ -19,46 +20,62 @@ SENTIMENT_LATENCY = Histogram(
     "sentiment_analysis_seconds", "Sentiment analysis latency"
 )
 
-SYSTEM_PROMPT = """You are a community issue classifier for PUBG (a battle royale game).
-Analyze the given Steam review and return a JSON object with:
-1. "sentiment": a float from -1.0 (very negative) to 1.0 (very positive)
-2. "issue_tags": pick exactly 1 tag from ONLY these values: ["anti-cheat", "server-stability", "optimization", "game-balance", "new-content", "matchmaking", "bugs", "monetization", "general"]
+SYSTEM_PROMPT = """You are a multilingual Steam review analyst for PUBG LiveOps monitoring.
 
-Sentiment scoring guide:
-- 0.7 to 1.0: clearly positive
-- 0.1 to 0.6: mildly positive or mixed
-- -0.1 to 0.1: neutral or unclear
-- -0.6 to -0.1: mildly negative
-- -1.0 to -0.7: clearly negative
+Your job: read a Steam review in ANY language, understand its meaning, and classify it.
 
-Tag definitions (pick the ONE best fit):
-- "anti-cheat": hackers, aimbots, wallhacks, cheater reports, anti-cheat system complaints
-- "server-stability": lag, high ping, disconnects, server crashes, desync, region issues
-- "optimization": FPS drops, stuttering, crashes to desktop, hardware performance, loading times
-- "game-balance": weapon balance, vehicle balance, circle/zone complaints, loot distribution
-- "new-content": reactions to maps, modes, skins, seasons, patches, events
-- "matchmaking": queue times, skill-based matchmaking, bots in lobbies, ranking system
-- "bugs": specific glitches, broken mechanics, visual/audio bugs, exploit reports
-- "monetization": pricing, battle pass value, crate/skin costs, paid content complaints
-- "general": overall game opinion, nostalgia, playtime milestones, recommendation without specific topic
+Steam reviews come in dozens of languages (Chinese, Russian, Portuguese, Turkish, Thai, Korean, Japanese, Arabic, etc.). You MUST understand and analyze the review in its original language. Do NOT rely on keyword matching. Understand the full context and meaning of what the reviewer is saying.
 
-Rules:
-- Always pick exactly 1 tag, never 0 or 2+.
-- Non-English reviews: classify based on recognizable keywords, tone, and context.
-- Very short or single-character reviews: sentiment 0.0, tag "general".
+Return ONLY valid JSON in this exact format:
+{"sentiment": <float>, "issue_tags": ["<tag>"], "translated": "<Korean translation>"}
 
-Return ONLY valid JSON, no other text."""
+## sentiment (float, -1.0 to 1.0)
+Analyze the reviewer's overall feeling based on what they wrote:
+- -1.0 = extremely negative (rage, refund demand, calling game dead)
+- -0.5 = clearly negative (frustrated, disappointed)
+-  0.0 = neutral or mixed feelings
+-  0.5 = clearly positive (enjoying, recommending)
+-  1.0 = extremely positive (enthusiastic praise)
+
+Factor in the Steam recommendation signal provided with the review:
+- "not recommended" with neutral text → lean negative (-0.2 to -0.4)
+- "recommended" with neutral text → lean positive (0.2 to 0.4)
+- The actual review text takes priority if it clearly contradicts the signal.
+
+## issue_tags (array with exactly ONE tag)
+Pick the single most relevant operational category based on what the reviewer is actually discussing:
+""" + "\n".join(f'- "{tag}": {desc}' for tag, desc in ISSUE_TAG_DESCRIPTIONS.items()) + """
+
+Choose based on the meaning of the review, not surface-level keywords.
+Use "general" only when the review has no specific operational topic.
+
+## translated (string)
+Translate the review into English.
+- If the review is already in English, copy it as-is.
+- Keep it concise — summarize if the original is very long, but preserve the key complaints or praise.
+
+Return ONLY the JSON object. No markdown, no explanation."""
 
 
-async def analyze_sentiment(content: str) -> dict:
+def _format_review(content: str, recommended: bool | None) -> str:
+    if recommended is True:
+        signal = "recommended"
+    elif recommended is False:
+        signal = "not recommended"
+    else:
+        signal = "unknown"
+    return f"Steam recommendation: {signal}\n\nReview text:\n{content[:2000]}"
+
+
+async def analyze_sentiment(content: str, recommended: bool | None = None) -> dict:
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key, max_retries=3)
 
     with SENTIMENT_LATENCY.time():
         response = await client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=256,
+            max_tokens=512,
             system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": content[:2000]}],
+            messages=[{"role": "user", "content": _format_review(content, recommended)}],
         )
 
     SENTIMENT_REQUESTS.inc()
@@ -81,12 +98,21 @@ async def analyze_sentiment(content: str) -> dict:
     text = text[start:end]
 
     result = json.loads(text)
-    tags = result.get("issue_tags", [])
-    if isinstance(tags, str):
-        tags = [tags]
+    raw_tags = result.get("issue_tags") or result.get("issue_tag") or []
+    if isinstance(raw_tags, str):
+        raw_tags = [raw_tags]
+
+    validated_tags = []
+    for tag in raw_tags:
+        normalized = str(tag).strip().lower()
+        normalized = LEGACY_TAG_ALIASES.get(normalized, normalized)
+        if normalized in ISSUE_TAGS:
+            validated_tags.append(normalized)
+
     return {
         "sentiment": max(-1.0, min(1.0, float(result["sentiment"]))),
-        "issue_tags": tags,
+        "issue_tags": [validated_tags[0]] if validated_tags else [DEFAULT_ISSUE_TAG],
+        "translated": result.get("translated") or None,
     }
 
 
@@ -124,17 +150,20 @@ async def process_unanalyzed_posts(batch_size: int = 20) -> list[dict]:
                 results.append({"post_id": str(post.id), "sentiment": 0.0, "issue_tags": ["general"]})
                 continue
 
-            analysis = await analyze_sentiment(post.content)
+            analysis = await analyze_sentiment(post.content, recommended=post.recommended)
 
             async with AsyncSessionLocal() as session:
+                update_values = {
+                    "sentiment": analysis["sentiment"],
+                    "issue_tags": analysis["issue_tags"],
+                    "analyzed_at": datetime.now(timezone.utc),
+                }
+                if analysis.get("translated"):
+                    update_values["translated_content"] = analysis["translated"]
                 stmt = (
                     update(Post)
                     .where(Post.id == post.id)
-                    .values(
-                        sentiment=analysis["sentiment"],
-                        issue_tags=analysis["issue_tags"],
-                        analyzed_at=datetime.now(timezone.utc),
-                    )
+                    .values(**update_values)
                 )
                 await session.execute(stmt)
                 await session.commit()

@@ -15,6 +15,7 @@ class PostOut(BaseModel):
     recommended: bool | None
     sentiment: float | None
     issue_tags: list[str] | None
+    translated_content: str | None
     created_at: datetime
     analyzed_at: datetime | None
 
@@ -35,7 +36,7 @@ class AlertOut(BaseModel):
 
 
 class AlertUpdateIn(BaseModel):
-    status: str = Field(pattern="^(open|acknowledged|resolved)$")
+    status: str = Field(pattern="^(open|acknowledged|resolved|dismissed)$")
 
 
 class DraftOut(BaseModel):

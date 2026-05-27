@@ -72,7 +72,7 @@ def sample_alert():
                     "content": "Server issues again, getting disconnected every game.",
                     "sentiment": -0.8,
                     "url": "https://store.steampowered.com/app/578080",
-                    "issue_tags": ["server"],
+                    "issue_tags": ["server-stability"],
                 }
             ],
         },

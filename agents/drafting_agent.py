@@ -106,7 +106,17 @@ Return ONLY a JSON object with these four scores.""",
     if text.startswith("```"):
         text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
 
-    return json.loads(text)
+    try:
+        scores = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        logger.warning("eval_score_parse_failed", raw=text[:200])
+        return {"relevance": 0.5, "tone": 0.5, "accuracy": 0.5, "actionability": 0.5}
+
+    for key in ("relevance", "tone", "accuracy", "actionability"):
+        if key in scores:
+            scores[key] = max(0.0, min(1.0, float(scores[key])))
+
+    return scores
 
 
 async def store_eval_scores(draft_id: str, scores: dict):

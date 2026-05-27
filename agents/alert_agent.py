@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 
 from config import settings
+from constants import ACTIVE_ALERT_STATUSES
 from db.engine import AsyncSessionLocal
 from db.models import Alert, Post
 
@@ -128,7 +129,7 @@ async def detect_alerts() -> list[dict]:
         drop = sentiment_data["earlier_avg"] - sentiment_data["recent_avg"]
         if drop >= settings.sentiment_drop_threshold:
             severity = "high" if drop >= 0.5 else "medium" if drop >= 0.3 else "low"
-            representative = await get_representative_posts(["server", "bug", "cheat"])
+            representative = await get_representative_posts(["server-stability", "bugs", "anti-cheat"])
 
             alert = {
                 "alert_type": "sentiment_drop",
@@ -174,8 +175,28 @@ async def detect_alerts() -> list[dict]:
                 )
 
     stored_alerts = []
+    cooldown_since = datetime.now(timezone.utc) - timedelta(minutes=settings.alert_cooldown_minutes)
+
     async with AsyncSessionLocal() as session:
         for alert_data in alerts:
+            fingerprint_type = alert_data["alert_type"]
+            fingerprint_tag = alert_data["trigger_data"].get("keyword", "sentiment_drop")
+
+            existing_stmt = (
+                select(func.count(Alert.id))
+                .where(Alert.alert_type == fingerprint_type)
+                .where(Alert.status.in_(ACTIVE_ALERT_STATUSES))
+                .where(Alert.created_at >= cooldown_since)
+            )
+            existing_count = (await session.execute(existing_stmt)).scalar()
+            if existing_count and existing_count > 0:
+                logger.info(
+                    "alert_deduplicated",
+                    alert_type=fingerprint_type,
+                    tag=fingerprint_tag,
+                )
+                continue
+
             alert_id = uuid.uuid4()
             related_ids = [
                 p["external_id"]

@@ -8,17 +8,21 @@ import asyncio
 import json
 from datetime import datetime, timedelta, timezone
 
+import structlog
 import uvicorn
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 from mcp.types import TextContent, Tool
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 from starlette.applications import Starlette
 from starlette.routing import Mount
 
 from config import settings
 from db.engine import AsyncSessionLocal
+from constants import LEGACY_TAG_ALIASES
 from db.models import Alert, Draft, OfficialResponse, PatchNote, Post
+
+logger = structlog.get_logger()
 
 mcp_app = Server("sentinelops-community")
 
@@ -47,7 +51,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="get_official_responses",
-            description="Get official response templates for a given issue tag (e.g., 'server', 'bug', 'cheat').",
+            description="Get official response templates for a given issue tag (e.g., 'server-stability', 'bugs', 'anti-cheat', 'optimization', 'game-balance', 'new-content', 'matchmaking', 'monetization', 'general').",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -156,16 +160,16 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 async def get_similar_issues(description: str, top_k: int) -> list[dict]:
     keywords = description.lower().split()
     async with AsyncSessionLocal() as session:
-        conditions = []
-        for kw in keywords[:10]:
-            conditions.append(func.lower(Post.content).contains(kw))
+        conditions = [func.lower(Post.content).contains(kw) for kw in keywords[:10]]
 
         stmt = (
             select(Post)
             .where(Post.analyzed_at.is_not(None))
-            .order_by(Post.created_at.desc())
-            .limit(top_k * 5)
         )
+        if conditions:
+            stmt = stmt.where(or_(*conditions))
+        stmt = stmt.order_by(Post.created_at.desc()).limit(top_k * 10)
+
         result = await session.execute(stmt)
         posts = result.scalars().all()
 
@@ -193,10 +197,14 @@ async def get_similar_issues(description: str, top_k: int) -> list[dict]:
 
 
 async def get_official_responses(issue_tag: str) -> list[dict]:
+    normalized_tag = LEGACY_TAG_ALIASES.get(issue_tag.strip().lower(), issue_tag.strip().lower())
+    legacy_aliases = [k for k, v in LEGACY_TAG_ALIASES.items() if v == normalized_tag]
+    search_tags = list({normalized_tag} | set(legacy_aliases))
+
     async with AsyncSessionLocal() as session:
         stmt = (
             select(OfficialResponse)
-            .where(OfficialResponse.issue_tag == issue_tag)
+            .where(OfficialResponse.issue_tag.in_(search_tags))
             .order_by(OfficialResponse.created_at.desc())
         )
         result = await session.execute(stmt)
@@ -338,7 +346,7 @@ async def handle_sse(scope, receive, send):
                 read_stream, write_stream, mcp_app.create_initialization_options()
             )
     except Exception:
-        pass
+        logger.exception("mcp_sse_connection_error")
 
 
 _inner = Starlette(

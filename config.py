@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     sentiment_drop_threshold: float = 0.3
     spike_multiplier: float = 2.0
     rolling_window_minutes: int = 60
+    alert_cooldown_minutes: int = 120
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
