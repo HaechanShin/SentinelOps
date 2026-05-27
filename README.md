@@ -80,7 +80,7 @@ This starts:
 
 ## Pipeline Flow
 
-1. **Data Ingestion** — Collects Steam reviews every 5 minutes
+1. **Data Ingestion** — Collects new Steam reviews every hour (cursor-based pagination)
 2. **Sentiment Analysis** — Claude API analyzes each review for sentiment (-1.0 to 1.0) and issue tags
 3. **Alert Detection** — Rolling window analysis detects sentiment drops and keyword spikes
 4. **Response Drafting** — Generates 3 response drafts per alert (official, empathetic, concise)

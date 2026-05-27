@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     langchain_project: str = "sentinelops"
 
     log_level: str = "INFO"
-    polling_interval_seconds: int = 300
+    polling_interval_seconds: int = 3600
     sentiment_drop_threshold: float = 0.3
     spike_multiplier: float = 2.0
     rolling_window_minutes: int = 60

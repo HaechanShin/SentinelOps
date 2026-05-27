@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 import httpx
+import redis.asyncio as aioredis
 import structlog
 from sqlalchemy.dialects.postgresql import insert
 
@@ -11,46 +12,74 @@ from db.models import Post
 logger = structlog.get_logger()
 
 STEAM_REVIEWS_URL = "https://store.steampowered.com/appreviews/{app_id}"
+CURSOR_KEY = "steam:review_cursor"
 
 
-async def collect_steam_reviews(count: int = 50) -> list[dict]:
-    params = {
-        "json": "1",
-        "filter": "recent",
-        "language": "all",
-        "num_per_page": count,
-        "purchase_type": "all",
-    }
+async def _get_redis():
+    return aioredis.from_url(settings.redis_url, decode_responses=True)
+
+
+async def collect_steam_reviews(per_page: int = 50, max_pages: int = 10) -> list[dict]:
+    redis = await _get_redis()
+    cursor = await redis.get(CURSOR_KEY) or "*"
+    all_reviews = []
 
     async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.get(
-            STEAM_REVIEWS_URL.format(app_id=settings.steam_app_id), params=params
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        for page in range(max_pages):
+            params = {
+                "json": "1",
+                "filter": "recent",
+                "language": "all",
+                "num_per_page": per_page,
+                "purchase_type": "all",
+                "cursor": cursor,
+            }
+            resp = await client.get(
+                STEAM_REVIEWS_URL.format(app_id=settings.steam_app_id), params=params
+            )
+            resp.raise_for_status()
+            data = resp.json()
 
-    reviews = []
-    for review in data.get("reviews", []):
-        review_data = {
-            "source": "steam",
-            "external_id": f"steam_{review['recommendationid']}",
-            "title": None,
-            "content": review["review"],
-            "author": review["author"].get("steamid", "unknown"),
-            "url": f"https://store.steampowered.com/app/{settings.steam_app_id}",
-            "recommended": review.get("voted_up", None),
-            "created_at": datetime.fromtimestamp(
-                review["timestamp_created"], tz=timezone.utc
-            ),
-        }
-        reviews.append(review_data)
+            batch = data.get("reviews", [])
+            if not batch:
+                break
+
+            for review in batch:
+                all_reviews.append({
+                    "source": "steam",
+                    "external_id": f"steam_{review['recommendationid']}",
+                    "title": None,
+                    "content": review["review"],
+                    "author": review["author"].get("steamid", "unknown"),
+                    "url": f"https://store.steampowered.com/app/{settings.steam_app_id}",
+                    "recommended": review.get("voted_up", None),
+                    "created_at": datetime.fromtimestamp(
+                        review["timestamp_created"], tz=timezone.utc
+                    ),
+                })
+
+            next_cursor = data.get("cursor")
+            if not next_cursor or next_cursor == cursor:
+                break
+            cursor = next_cursor
+
+            logger.info(
+                "steam_reviews_page",
+                page=page + 1,
+                batch_size=len(batch),
+                cursor=next_cursor,
+            )
+
+    if cursor != "*":
+        await redis.set(CURSOR_KEY, cursor)
 
     logger.info(
         "steam_reviews_collected",
-        count=len(reviews),
+        count=len(all_reviews),
         app_id=settings.steam_app_id,
     )
-    return reviews
+    await redis.aclose()
+    return all_reviews
 
 
 async def store_reviews(reviews: list[dict]) -> int:
