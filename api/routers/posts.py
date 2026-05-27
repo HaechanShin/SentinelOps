@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.schemas import PostOut, SentimentTrendPoint
@@ -48,8 +48,8 @@ async def sentiment_trend(
         )
         .where(Post.analyzed_at.is_not(None))
         .where(Post.created_at >= since)
-        .group_by(func.date_trunc("hour", Post.created_at))
-        .order_by(func.date_trunc("hour", Post.created_at))
+        .group_by(text("1"))
+        .order_by(text("1"))
     )
     result = await session.execute(stmt)
 

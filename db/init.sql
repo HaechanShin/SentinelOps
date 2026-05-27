@@ -40,6 +40,17 @@ CREATE TABLE IF NOT EXISTS drafts (
     reviewed_at  TIMESTAMPTZ
 );
 
+CREATE TABLE IF NOT EXISTS pipeline_runs (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    started_at       TIMESTAMPTZ DEFAULT NOW(),
+    completed_at     TIMESTAMPTZ,
+    status           VARCHAR(20) DEFAULT 'running',
+    posts_analyzed   INTEGER DEFAULT 0,
+    alerts_triggered INTEGER DEFAULT 0,
+    drafts_generated INTEGER DEFAULT 0,
+    error_message    TEXT
+);
+
 CREATE TABLE IF NOT EXISTS official_responses (
     id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     issue_tag  VARCHAR(50) NOT NULL,
@@ -52,6 +63,7 @@ CREATE INDEX IF NOT EXISTS idx_official_responses_tag ON official_responses(issu
 
 CREATE TABLE IF NOT EXISTS patch_notes (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    gid          VARCHAR(50) UNIQUE NOT NULL,
     version      VARCHAR(50) NOT NULL,
     title        TEXT NOT NULL,
     content      TEXT NOT NULL,

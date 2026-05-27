@@ -5,6 +5,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from agents.graph import run_pipeline
 from config import settings
+from ingestion.news_collector import run_news_collection
 from ingestion.steam_collector import run_steam_collection
 
 logger = structlog.get_logger()
@@ -20,6 +21,12 @@ async def collection_cycle():
         logger.info("steam_collection_done", **steam_result)
     except Exception:
         logger.exception("steam_collection_error")
+
+    try:
+        news_result = await run_news_collection()
+        logger.info("news_collection_done", **news_result)
+    except Exception:
+        logger.exception("news_collection_error")
 
     if total_stored > 0:
         try:

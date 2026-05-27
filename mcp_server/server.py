@@ -8,19 +8,22 @@ import asyncio
 import json
 from datetime import datetime, timedelta, timezone
 
+import uvicorn
 from mcp.server import Server
-from mcp.server.stdio import stdio_server
+from mcp.server.sse import SseServerTransport
 from mcp.types import TextContent, Tool
 from sqlalchemy import func, select, text
+from starlette.applications import Starlette
+from starlette.routing import Mount
 
 from config import settings
 from db.engine import AsyncSessionLocal
 from db.models import Alert, Draft, OfficialResponse, PatchNote, Post
 
-app = Server("sentinelops-community")
+mcp_app = Server("sentinelops-community")
 
 
-@app.list_tools()
+@mcp_app.list_tools()
 async def list_tools() -> list[Tool]:
     return [
         Tool(
@@ -123,34 +126,34 @@ async def list_tools() -> list[Tool]:
     ]
 
 
-@app.call_tool()
+@mcp_app.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     match name:
         case "get_similar_issues":
-            result = await _get_similar_issues(
+            result = await get_similar_issues(
                 arguments["issue_description"], arguments.get("top_k", 5)
             )
         case "get_official_responses":
-            result = await _get_official_responses(arguments["issue_tag"])
+            result = await get_official_responses(arguments["issue_tag"])
         case "get_sentiment_trend":
-            result = await _get_sentiment_trend(arguments.get("hours", 24))
+            result = await get_sentiment_trend(arguments.get("hours", 24))
         case "get_patch_notes":
-            result = await _get_patch_notes(arguments.get("recent", 3))
+            result = await get_patch_notes(arguments.get("recent", 3))
         case "get_alert_history":
-            result = await _get_alert_history(
+            result = await get_alert_history(
                 arguments.get("hours", 24),
                 arguments.get("alert_type"),
                 arguments.get("status"),
             )
         case "get_community_summary":
-            result = await _get_community_summary(arguments.get("hours", 24))
+            result = await get_community_summary(arguments.get("hours", 24))
         case _:
             result = {"error": f"Unknown tool: {name}"}
 
     return [TextContent(type="text", text=json.dumps(result, default=str, indent=2))]
 
 
-async def _get_similar_issues(description: str, top_k: int) -> list[dict]:
+async def get_similar_issues(description: str, top_k: int) -> list[dict]:
     keywords = description.lower().split()
     async with AsyncSessionLocal() as session:
         conditions = []
@@ -189,7 +192,7 @@ async def _get_similar_issues(description: str, top_k: int) -> list[dict]:
     ]
 
 
-async def _get_official_responses(issue_tag: str) -> list[dict]:
+async def get_official_responses(issue_tag: str) -> list[dict]:
     async with AsyncSessionLocal() as session:
         stmt = (
             select(OfficialResponse)
@@ -211,7 +214,7 @@ async def _get_official_responses(issue_tag: str) -> list[dict]:
     ]
 
 
-async def _get_sentiment_trend(hours: int) -> list[dict]:
+async def get_sentiment_trend(hours: int) -> list[dict]:
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
     async with AsyncSessionLocal() as session:
         stmt = text("""
@@ -240,7 +243,7 @@ async def _get_sentiment_trend(hours: int) -> list[dict]:
     ]
 
 
-async def _get_patch_notes(recent: int) -> list[dict]:
+async def get_patch_notes(recent: int) -> list[dict]:
     async with AsyncSessionLocal() as session:
         stmt = (
             select(PatchNote)
@@ -262,7 +265,7 @@ async def _get_patch_notes(recent: int) -> list[dict]:
     ]
 
 
-async def _get_alert_history(
+async def get_alert_history(
     hours: int, alert_type: str | None, status: str | None
 ) -> list[dict]:
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
@@ -290,7 +293,7 @@ async def _get_alert_history(
     ]
 
 
-async def _get_community_summary(hours: int) -> dict:
+async def get_community_summary(hours: int) -> dict:
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
     async with AsyncSessionLocal() as session:
         count_stmt = (
@@ -325,10 +328,32 @@ async def _get_community_summary(hours: int) -> dict:
     }
 
 
-async def main():
-    async with stdio_server() as (read_stream, write_stream):
-        await app.run(read_stream, write_stream, app.create_initialization_options())
+sse = SseServerTransport("/messages/")
+
+
+async def handle_sse(scope, receive, send):
+    try:
+        async with sse.connect_sse(scope, receive, send) as (read_stream, write_stream):
+            await mcp_app.run(
+                read_stream, write_stream, mcp_app.create_initialization_options()
+            )
+    except Exception:
+        pass
+
+
+_inner = Starlette(
+    routes=[
+        Mount("/messages/", app=sse.handle_post_message),
+    ]
+)
+
+
+async def starlette_app(scope, receive, send):
+    if scope["type"] == "http" and scope.get("path", "").rstrip("/") == "/sse":
+        await handle_sse(scope, receive, send)
+    else:
+        await _inner(scope, receive, send)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    uvicorn.run(starlette_app, host="0.0.0.0", port=8001)

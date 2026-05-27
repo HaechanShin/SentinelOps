@@ -18,7 +18,7 @@ def mock_anthropic():
         mock.return_value = client
 
         response = MagicMock()
-        response.content = [MagicMock(text='{"sentiment": 0.5, "issue_tags": ["praise"]}')]
+        response.content = [MagicMock(text='{"sentiment": 0.5, "issue_tags": ["general"]}')]
         client.messages.create = AsyncMock(return_value=response)
 
         yield client

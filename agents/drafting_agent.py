@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import anthropic
 import structlog
 from prometheus_client import Counter, Histogram
+from sqlalchemy import update
 from sqlalchemy.dialects.postgresql import insert
 
 from config import settings
@@ -39,7 +40,7 @@ async def generate_drafts(
     alert_data: dict,
     context: dict | None = None,
 ) -> list[dict]:
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key, max_retries=3)
 
     context_text = _build_context(alert_data, context)
 
@@ -80,7 +81,7 @@ Write a community response draft for this issue. Return ONLY the response text, 
 
 
 async def evaluate_draft(draft_content: str, issue_context: str) -> dict:
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key, max_retries=3)
 
     response = await client.messages.create(
         model="claude-sonnet-4-6",
@@ -108,6 +109,14 @@ Return ONLY a JSON object with these four scores.""",
     return json.loads(text)
 
 
+async def store_eval_scores(draft_id: str, scores: dict):
+    async with AsyncSessionLocal() as session:
+        stmt = update(Draft).where(Draft.id == draft_id).values(eval_scores=scores)
+        await session.execute(stmt)
+        await session.commit()
+    logger.info("eval_scores_stored", draft_id=draft_id, scores=scores)
+
+
 def _build_context(alert_data: dict, context: dict | None) -> str:
     parts = []
 
@@ -131,14 +140,26 @@ def _build_context(alert_data: dict, context: dict | None) -> str:
 
     if context:
         if context.get("similar_issues"):
-            parts.append("\nSimilar past issues and responses:")
+            parts.append("\nSimilar past community issues:")
             for issue in context["similar_issues"][:3]:
-                parts.append(f"- {issue}")
+                sentiment = issue.get("sentiment", "N/A")
+                tags = ", ".join(issue.get("issue_tags") or [])
+                content = issue.get("content", "")[:200]
+                parts.append(f"- [{sentiment}] ({tags}) {content}")
 
         if context.get("patch_notes"):
             parts.append("\nRecent patch notes:")
             for note in context["patch_notes"][:2]:
-                parts.append(f"- {note}")
+                title = note.get("title", "")
+                content = note.get("content", "")[:300]
+                parts.append(f"- {title}: {content}")
+
+        if context.get("official_responses"):
+            parts.append("\nPast approved responses for similar issues:")
+            for resp in context["official_responses"][:3]:
+                tag = resp.get("issue_tag", "")
+                content = resp.get("content", "")[:200]
+                parts.append(f"- [{tag}] {content}")
 
     return "\n".join(parts)
 
@@ -159,6 +180,7 @@ async def _store_drafts(alert_id: str | None, drafts: list[dict]) -> list[dict]:
             stored.append(
                 {
                     "id": str(draft_id),
+                    "alert_id": str(alert_id) if alert_id else None,
                     "content": draft["content"],
                     "tone": draft["tone"],
                     "status": "pending",

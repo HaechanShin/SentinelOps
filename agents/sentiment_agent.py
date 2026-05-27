@@ -51,7 +51,7 @@ Return ONLY valid JSON, no other text."""
 
 
 async def analyze_sentiment(content: str) -> dict:
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key, max_retries=3)
 
     with SENTIMENT_LATENCY.time():
         response = await client.messages.create(
@@ -108,6 +108,22 @@ async def process_unanalyzed_posts(batch_size: int = 20) -> list[dict]:
     results = []
     for post in posts:
         try:
+            if not post.content or not post.content.strip():
+                async with AsyncSessionLocal() as session:
+                    stmt = (
+                        update(Post)
+                        .where(Post.id == post.id)
+                        .values(
+                            sentiment=0.0,
+                            issue_tags=["general"],
+                            analyzed_at=datetime.now(timezone.utc),
+                        )
+                    )
+                    await session.execute(stmt)
+                    await session.commit()
+                results.append({"post_id": str(post.id), "sentiment": 0.0, "issue_tags": ["general"]})
+                continue
+
             analysis = await analyze_sentiment(post.content)
 
             async with AsyncSessionLocal() as session:

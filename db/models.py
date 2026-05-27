@@ -68,6 +68,23 @@ class Draft(Base):
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class PipelineRun(Base):
+    __tablename__ = "pipeline_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(20), default="running")
+    posts_analyzed: Mapped[int] = mapped_column(default=0)
+    alerts_triggered: Mapped[int] = mapped_column(default=0)
+    drafts_generated: Mapped[int] = mapped_column(default=0)
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+
 class OfficialResponse(Base):
     __tablename__ = "official_responses"
 
@@ -88,6 +105,7 @@ class PatchNote(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
+    gid: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     version: Mapped[str] = mapped_column(String(50), nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
