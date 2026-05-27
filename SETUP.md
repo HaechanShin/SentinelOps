@@ -47,7 +47,9 @@ Open these in your browser:
 | URL | What you'll see |
 |-----|-----------------|
 | [localhost:8000/docs](http://localhost:8000/docs) | API documentation (Swagger UI) |
+| [localhost:8001/sse](http://localhost:8001/sse) | MCP Server (SSE transport — streams `endpoint` event) |
 | [localhost:3000](http://localhost:3000) | Grafana dashboard (login: admin / admin) |
+| [localhost:9090](http://localhost:9090) | Prometheus metrics |
 
 In Grafana, go to **Dashboards → SentinelOps — Community Monitoring** to see the main dashboard.
 
@@ -57,10 +59,16 @@ In Grafana, go to **Dashboards → SentinelOps — Community Monitoring** to see
 
 Once started, the system runs on its own:
 
-1. **Every hour** — Collects new Steam reviews for PUBG (cursor-based, no duplicates)
-2. **After collection** — AI analyzes each review (sentiment score + issue category)
-3. **After analysis** — Checks for community issues (sentiment drops, complaint spikes)
-4. **If issue detected** — Generates response drafts and sends Slack alerts (if configured)
+1. **Every hour** — Collects new Steam reviews + patch notes for PUBG
+2. **After collection** — AI analyzes each review (sentiment score + issue tag)
+3. **After analysis** — Checks for community issues (sentiment drops, keyword spikes)
+4. **If issue detected** — Claude tool_use gathers context via MCP tools (similar issues, patch notes, past responses)
+5. **Context enriched** — Generates 3 response drafts (official, empathetic, concise)
+6. **After drafting** — LLM-as-judge evaluates each draft (relevance, tone, accuracy, actionability)
+7. **Slack notification** — Sends alerts with approve/reject buttons (if configured)
+8. **On approval** — Approved drafts are stored as official responses, used as context for future drafts
+
+Every pipeline run is tracked in the `pipeline_runs` table with status, timing, and counts.
 
 You don't need to trigger anything manually. The first collection runs immediately on startup, then every hour after that.
 
@@ -91,9 +99,26 @@ The Grafana dashboard shows:
 curl http://localhost:8000/api/v1/posts
 ```
 
+### View sentiment trend
+```bash
+curl http://localhost:8000/api/v1/posts/sentiment/trend?hours=24
+```
+
 ### View dashboard summary
 ```bash
 curl http://localhost:8000/api/v1/dashboard/summary
+```
+
+### View drafts with evaluation scores
+```bash
+curl http://localhost:8000/api/v1/drafts
+```
+
+### Approve or reject a draft
+```bash
+curl -X POST http://localhost:8000/api/v1/drafts/{id}/review \
+  -H "Content-Type: application/json" \
+  -d '{"action": "approve"}'
 ```
 
 ### Manually trigger the pipeline
@@ -129,7 +154,35 @@ Without Slack configured, the system still works — it just won't send notifica
 
 ---
 
-## 8. Backfill Historical Data
+## 8. MCP Server — Claude Desktop Integration (Optional)
+
+The MCP server exposes 6 tools over SSE at `http://localhost:8001/sse`. You can connect Claude Desktop to query your community data interactively.
+
+Add to your Claude Desktop config (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "sentinelops": {
+      "url": "http://localhost:8001/sse"
+    }
+  }
+}
+```
+
+Available tools:
+- `get_similar_issues` — Search past community issues by keyword
+- `get_official_responses` — Get approved response templates by issue tag
+- `get_sentiment_trend` — Hourly sentiment averages
+- `get_patch_notes` — Recent PUBG patch notes
+- `get_alert_history` — Alert history with filters
+- `get_community_summary` — Activity summary
+
+These same tools are used internally by the pipeline (via Claude tool_use) during context gathering.
+
+---
+
+## 9. Backfill Historical Data
 
 By default, the system only collects new reviews going forward. To load past reviews:
 
@@ -147,7 +200,7 @@ docker compose exec app python -m ingestion.backfill --days 7 --analyze
 
 ---
 
-## 9. Stop & Reset
+## 10. Stop & Reset
 
 ```bash
 # Stop all services
@@ -165,5 +218,8 @@ docker compose down -v
 |---------|-----|
 | Dashboard shows no data | Wait 5 minutes for the first collection cycle, then refresh |
 | "No such image" error | Run `docker compose up --build` instead of `docker compose up` |
-| Port already in use | Stop other services using ports 8000, 3000, 5432, 6379, or 9090 |
+| Port already in use | Stop other services using ports 8000, 8001, 3000, 5432, 6379, or 9090 |
 | Grafana login doesn't work | Default credentials are `admin` / `admin` |
+| Pipeline runs but 0 alerts | Normal if sentiment is stable. Use backfill for more data, or wait for natural variation |
+| Slack bot shows "idle" | Expected if `SLACK_APP_TOKEN` is not set. System works without Slack |
+| MCP SSE returns no data | Check that postgres is healthy: `docker compose ps` |
