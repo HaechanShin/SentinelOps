@@ -190,12 +190,16 @@ By default, the system only collects new reviews going forward. To load past rev
 # Collect reviews from the last 30 days (no AI analysis, just store)
 docker compose exec app python -m ingestion.backfill --days 30
 
-# Collect + run AI analysis on all of them
+# Collect + run AI analysis
 docker compose exec app python -m ingestion.backfill --days 7 --analyze
+
+# Collect 1 year of reviews, but only analyze the last 7 days
+docker compose exec app python -m ingestion.backfill --days 365 --analyze --analyze-days 7
 ```
 
 - Without `--analyze`: only collects and stores reviews (free, Steam API only)
-- With `--analyze`: also runs sentiment + category analysis (costs Anthropic API tokens)
+- With `--analyze`: runs sentiment + category analysis on **all unanalyzed posts** within the period — not just newly collected ones (costs Anthropic API tokens)
+- `--analyze-days`: limits analysis to recent N days (defaults to `--days` value if omitted). Use this to avoid re-analyzing a large backlog
 - Duplicate reviews are automatically skipped
 
 ---

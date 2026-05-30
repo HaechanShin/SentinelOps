@@ -116,14 +116,17 @@ async def analyze_sentiment(content: str, recommended: bool | None = None) -> di
     }
 
 
-async def process_unanalyzed_posts(batch_size: int = 20) -> list[dict]:
+async def process_unanalyzed_posts(
+    batch_size: int = 20, since: datetime | None = None
+) -> list[dict]:
     async with AsyncSessionLocal() as session:
         stmt = (
             select(Post)
             .where(Post.analyzed_at.is_(None))
-            .order_by(Post.created_at.desc())
-            .limit(batch_size)
         )
+        if since is not None:
+            stmt = stmt.where(Post.created_at >= since)
+        stmt = stmt.order_by(Post.created_at.desc()).limit(batch_size)
         result = await session.execute(stmt)
         posts = result.scalars().all()
 

@@ -2,6 +2,8 @@
 
 Real-time community monitoring and response drafting system for PUBG. Collects Steam reviews, analyzes sentiment, detects issues, and provides AI-generated response drafts with approval-gated workflows.
 
+> Unofficial demo project. Not affiliated with KRAFTON or PUBG Studios.
+
 ## Architecture
 
 ```
@@ -81,17 +83,35 @@ Add to your Claude Desktop config (`claude_desktop_config.json`):
 {
   "mcpServers": {
     "sentinelops": {
-      "url": "http://localhost:8001/sse"
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "mcp-remote@latest",
+        "http://localhost:8001/sse",
+        "--transport",
+        "sse-only"
+      ]
     }
   }
 }
 ```
 
+> **Windows note:** If Claude Desktop can't find `npx`, replace `"npx"` with the full path (e.g., `"C:\\Program Files\\nodejs\\npx.cmd"`).
+> Requires Node.js 18+. Restart Claude Desktop after editing the config.
+
 ### 4. Backfill Historical Data (Optional)
 
 ```bash
+# Collect last 30 days and analyze all of them
 docker compose exec app python -m ingestion.backfill --days 30 --analyze
+
+# Collect 1 year of reviews, but only analyze the last 7 days
+docker compose exec app python -m ingestion.backfill --days 365 --analyze --analyze-days 7
 ```
+
+> `--analyze` targets **all unanalyzed posts** within the period, not just newly collected ones. Use `--analyze-days` to limit the analysis range and control API costs.
 
 ## Pipeline Flow
 

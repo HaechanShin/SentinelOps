@@ -4,6 +4,7 @@ Backfill historical Steam reviews.
 Usage:
   docker compose exec app python -m ingestion.backfill --days 30
   docker compose exec app python -m ingestion.backfill --days 7 --analyze
+  docker compose exec app python -m ingestion.backfill --days 365 --analyze --analyze-days 7
 """
 
 import argparse
@@ -24,7 +25,7 @@ logger = structlog.get_logger()
 STEAM_REVIEWS_URL = "https://store.steampowered.com/appreviews/{app_id}"
 
 
-async def backfill_reviews(days: int, analyze: bool):
+async def backfill_reviews(days: int, analyze: bool, analyze_days: int | None = None):
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     cursor = "*"
     total_collected = 0
@@ -122,10 +123,11 @@ async def backfill_reviews(days: int, analyze: bool):
     )
 
     if analyze and total_stored > 0:
-        logger.info("backfill_analysis_start", posts=total_stored)
+        analyze_since = datetime.now(timezone.utc) - timedelta(days=analyze_days or days)
+        logger.info("backfill_analysis_start", posts=total_stored, since=analyze_since.isoformat())
         analyzed = 0
         while True:
-            batch = await process_unanalyzed_posts(batch_size=20)
+            batch = await process_unanalyzed_posts(batch_size=20, since=analyze_since)
             if not batch:
                 break
             analyzed += len(batch)
@@ -139,9 +141,10 @@ def main():
     parser = argparse.ArgumentParser(description="Backfill historical Steam reviews")
     parser.add_argument("--days", type=int, required=True, help="Number of days to backfill")
     parser.add_argument("--analyze", action="store_true", help="Run AI analysis on collected reviews")
+    parser.add_argument("--analyze-days", type=int, default=None, help="Only analyze posts from this many days back (defaults to --days)")
     args = parser.parse_args()
 
-    asyncio.run(backfill_reviews(days=args.days, analyze=args.analyze))
+    asyncio.run(backfill_reviews(days=args.days, analyze=args.analyze, analyze_days=args.analyze_days))
 
 
 if __name__ == "__main__":
