@@ -177,7 +177,16 @@ Add to your Claude Desktop config (`claude_desktop_config.json`):
 {
   "mcpServers": {
     "sentinelops": {
-      "url": "http://localhost:8001/sse"
+      "command": "cmd",
+      "args": [
+        "/c",
+        "C:\\Program Files\\nodejs\\npx.cmd",
+        "-y",
+        "mcp-remote@latest",
+        "http://localhost:8001/sse",
+        "--transport",
+        "sse-only"
+      ]
     }
   }
 }
