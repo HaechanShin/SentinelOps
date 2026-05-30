@@ -1,5 +1,4 @@
-import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -7,12 +6,11 @@ from agents.sentiment_agent import analyze_sentiment
 
 
 @pytest.mark.asyncio
-async def test_analyze_sentiment_positive(mock_anthropic):
-    mock_anthropic.messages.create.return_value.content = [
-        MagicMock(text='{"sentiment": 0.8, "issue_tags": ["new-content"]}')
-    ]
-
-    with patch("agents.sentiment_agent.anthropic.AsyncAnthropic", return_value=mock_anthropic):
+async def test_analyze_sentiment_positive():
+    with patch(
+        "agents.sentiment_agent.complete_text",
+        new=AsyncMock(return_value='{"sentiment": 0.8, "issue_tags": ["new-content"]}'),
+    ):
         result = await analyze_sentiment("This update is amazing! Best patch ever!")
 
     assert result["sentiment"] == 0.8
@@ -20,12 +18,11 @@ async def test_analyze_sentiment_positive(mock_anthropic):
 
 
 @pytest.mark.asyncio
-async def test_analyze_sentiment_negative(mock_anthropic):
-    mock_anthropic.messages.create.return_value.content = [
-        MagicMock(text='{"sentiment": -0.7, "issue_tags": ["server-stability"]}')
-    ]
-
-    with patch("agents.sentiment_agent.anthropic.AsyncAnthropic", return_value=mock_anthropic):
+async def test_analyze_sentiment_negative():
+    with patch(
+        "agents.sentiment_agent.complete_text",
+        new=AsyncMock(return_value='{"sentiment": -0.7, "issue_tags": ["server-stability"]}'),
+    ):
         result = await analyze_sentiment("Servers are down again, this game is broken!")
 
     assert result["sentiment"] == -0.7
@@ -33,24 +30,22 @@ async def test_analyze_sentiment_negative(mock_anthropic):
 
 
 @pytest.mark.asyncio
-async def test_analyze_sentiment_clamps_values(mock_anthropic):
-    mock_anthropic.messages.create.return_value.content = [
-        MagicMock(text='{"sentiment": 1.5, "issue_tags": []}')
-    ]
-
-    with patch("agents.sentiment_agent.anthropic.AsyncAnthropic", return_value=mock_anthropic):
+async def test_analyze_sentiment_clamps_values():
+    with patch(
+        "agents.sentiment_agent.complete_text",
+        new=AsyncMock(return_value='{"sentiment": 1.5, "issue_tags": []}'),
+    ):
         result = await analyze_sentiment("test")
 
     assert result["sentiment"] == 1.0
 
 
 @pytest.mark.asyncio
-async def test_analyze_sentiment_handles_markdown(mock_anthropic):
-    mock_anthropic.messages.create.return_value.content = [
-        MagicMock(text='```json\n{"sentiment": 0.3, "issue_tags": ["general"]}\n```')
-    ]
-
-    with patch("agents.sentiment_agent.anthropic.AsyncAnthropic", return_value=mock_anthropic):
+async def test_analyze_sentiment_handles_markdown():
+    with patch(
+        "agents.sentiment_agent.complete_text",
+        new=AsyncMock(return_value='```json\n{"sentiment": 0.3, "issue_tags": ["general"]}\n```'),
+    ):
         result = await analyze_sentiment("How do I play this game?")
 
     assert result["sentiment"] == 0.3

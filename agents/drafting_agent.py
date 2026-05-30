@@ -1,14 +1,12 @@
 import json
 import uuid
-from datetime import datetime, timezone
 
-import anthropic
 import structlog
 from prometheus_client import Counter, Histogram
 from sqlalchemy import update
 from sqlalchemy.dialects.postgresql import insert
 
-from config import settings
+from agents.llm_client import complete_text, loads_json_object
 from db.engine import AsyncSessionLocal
 from db.models import Draft
 
@@ -40,8 +38,6 @@ async def generate_drafts(
     alert_data: dict,
     context: dict | None = None,
 ) -> list[dict]:
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key, max_retries=3)
-
     context_text = _build_context(alert_data, context)
 
     tones = [
@@ -53,24 +49,19 @@ async def generate_drafts(
     drafts = []
     for tone_name, tone_instruction in tones:
         with DRAFT_LATENCY.time():
-            response = await client.messages.create(
-                model="claude-sonnet-4-6",
-                max_tokens=512,
+            draft_content = await complete_text(
                 system=SYSTEM_PROMPT,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": f"""Issue Context:
+                user=f"""Issue Context:
 {context_text}
 
 Tone: {tone_instruction}
 
-Write a community response draft for this issue. Return ONLY the response text, no JSON or formatting.""",
-                    }
-                ],
+Write a community response draft for this issue.
+Return ONLY the response text, no JSON or formatting.""",
+                max_tokens=512,
+                temperature=0.4,
             )
 
-        draft_content = response.content[0].text.strip()
         DRAFTS_GENERATED.inc()
 
         drafts.append({"content": draft_content, "tone": tone_name})
@@ -81,11 +72,7 @@ Write a community response draft for this issue. Return ONLY the response text, 
 
 
 async def evaluate_draft(draft_content: str, issue_context: str) -> dict:
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key, max_retries=3)
-
-    response = await client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=256,
+    text = await complete_text(
         system="""You are an evaluation judge for community response drafts.
 Rate the following draft on these criteria (0.0 to 1.0):
 1. relevance: How well does the response address the specific issue?
@@ -94,20 +81,14 @@ Rate the following draft on these criteria (0.0 to 1.0):
 4. actionability: Does the response provide clear next steps or information?
 
 Return ONLY a JSON object with these four scores.""",
-        messages=[
-            {
-                "role": "user",
-                "content": f"Issue: {issue_context}\n\nDraft Response: {draft_content}",
-            }
-        ],
+        user=f"Issue: {issue_context}\n\nDraft Response: {draft_content}",
+        max_tokens=256,
+        temperature=0.1,
+        response_format={"type": "json_object"},
     )
 
-    text = response.content[0].text.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-
     try:
-        scores = json.loads(text)
+        scores = loads_json_object(text)
     except (json.JSONDecodeError, ValueError):
         logger.warning("eval_score_parse_failed", raw=text[:200])
         return {"relevance": 0.5, "tone": 0.5, "accuracy": 0.5, "actionability": 0.5}

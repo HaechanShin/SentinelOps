@@ -1,5 +1,4 @@
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -9,19 +8,6 @@ def event_loop():
     loop = asyncio.new_event_loop()
     yield loop
     loop.close()
-
-
-@pytest.fixture
-def mock_anthropic():
-    with patch("anthropic.AsyncAnthropic") as mock:
-        client = AsyncMock()
-        mock.return_value = client
-
-        response = MagicMock()
-        response.content = [MagicMock(text='{"sentiment": 0.5, "issue_tags": ["general"]}')]
-        client.messages.create = AsyncMock(return_value=response)
-
-        yield client
 
 
 @pytest.fixture
@@ -39,7 +25,9 @@ def sample_posts():
             "source": "steam",
             "external_id": "steam_test_002",
             "title": None,
-            "content": "Server issues again, getting disconnected every game. This is unacceptable.",
+            "content": (
+                "Server issues again, getting disconnected every game. This is unacceptable."
+            ),
             "author": "steam_user_2",
             "url": "https://store.steampowered.com/app/578080",
         },

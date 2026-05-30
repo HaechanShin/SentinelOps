@@ -1,9 +1,31 @@
+x-ai-environment: &ai-environment
+  AI_PROVIDER: ${AI_PROVIDER:-anthropic}
+  ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
+  ANTHROPIC_MAX_RETRIES: ${ANTHROPIC_MAX_RETRIES:-3}
+  LOCAL_LLM_BACKEND: ${LOCAL_LLM_BACKEND:-ollama}
+  LOCAL_LLM_BASE_URL: ${LOCAL_LLM_BASE_URL:-http://host.docker.internal:11434}
+  LOCAL_LLM_API_KEY: ${LOCAL_LLM_API_KEY:-ollama}
+  LOCAL_LLM_MODEL: ${LOCAL_LLM_MODEL:-qwen3.6:latest}
+  LOCAL_LLM_TEMPERATURE: ${LOCAL_LLM_TEMPERATURE:-0.2}
+  LOCAL_LLM_CONTEXT_TOKENS: ${LOCAL_LLM_CONTEXT_TOKENS:-16384}
+  LOCAL_LLM_TOP_P: ${LOCAL_LLM_TOP_P:-0.9}
+  LOCAL_LLM_TOP_K: ${LOCAL_LLM_TOP_K:-20}
+  LOCAL_LLM_MIN_P: ${LOCAL_LLM_MIN_P:-0.0}
+  LOCAL_LLM_REPEAT_PENALTY: ${LOCAL_LLM_REPEAT_PENALTY:-1.05}
+  LOCAL_LLM_PRESENCE_PENALTY: ${LOCAL_LLM_PRESENCE_PENALTY:-0.0}
+  LOCAL_LLM_TIMEOUT_SECONDS: ${LOCAL_LLM_TIMEOUT_SECONDS:-120}
+  LOCAL_LLM_MAX_RETRIES: ${LOCAL_LLM_MAX_RETRIES:-3}
+  LOCAL_LLM_KEEP_ALIVE: ${LOCAL_LLM_KEEP_ALIVE:-10m}
+  LOCAL_LLM_THINK: ${LOCAL_LLM_THINK:-false}
+
 services:
   app:
     build: .
     ports:
       - "8000:8000"
     env_file: .env
+    environment:
+      <<: *ai-environment
     depends_on:
       postgres:
         condition: service_healthy
@@ -16,6 +38,8 @@ services:
   worker:
     build: .
     env_file: .env
+    environment:
+      <<: *ai-environment
     depends_on:
       postgres:
         condition: service_healthy
@@ -28,6 +52,8 @@ services:
   slack-bot:
     build: .
     env_file: .env
+    environment:
+      <<: *ai-environment
     depends_on:
       postgres:
         condition: service_healthy

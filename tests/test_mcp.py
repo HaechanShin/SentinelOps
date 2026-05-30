@@ -1,6 +1,6 @@
 import pytest
 
-from mcp_server.server import mcp_app, list_tools
+from mcp_server.server import list_tools
 
 
 @pytest.mark.asyncio

@@ -17,7 +17,7 @@ Steam Reviews ──→ Data Ingestion ──→ Sentiment Analysis
                                          │
 Steam News API ──→ Patch Notes      Alert Detection
                    Collection            │
-                                   Context Gathering (Claude tool_use)
+                                   Context Gathering (AI provider)
                                    ├─ get_similar_issues
                                    ├─ get_patch_notes
                                    └─ get_official_responses
@@ -35,13 +35,13 @@ Steam News API ──→ Patch Notes      Alert Detection
 
 - **MCP-first intelligence layer**: Pipeline context is gathered through MCP tool functions — the same tools exposed to Claude Desktop for interactive querying.
 - **Approval-gated workflow**: Drafts require human approval in Slack. Approved drafts feed back into `official_responses`, enriching future draft quality.
-- **Claude tool_use for context**: The context-gathering step uses Claude's native tool_use — the LLM decides which MCP tools to call based on the alert.
+- **Selectable AI provider**: Claude is the default path and keeps native `tool_use` for context. Local/OpenAI-compatible providers use a JSON tool planner against the same MCP tool functions.
 - **Pipeline accountability**: Every pipeline execution is tracked in `pipeline_runs` with status, timing, and counts.
 
 ## Tech Stack
 
 - **Multi-Agent Framework:** LangGraph
-- **LLM:** Anthropic Claude API (claude-sonnet-4-6) with tool_use
+- **LLM:** Anthropic Claude by default, or local Qwen through Ollama/OpenAI-compatible endpoints
 - **API Server:** FastAPI
 - **Database:** PostgreSQL + pgvector
 - **Message Queue:** Redis (AOF persistence)
@@ -57,6 +57,24 @@ Steam News API ──→ Patch Notes      Alert Detection
 ```bash
 cp .env.example .env
 # Edit .env with your API keys (Anthropic, Steam)
+```
+
+Default Claude mode:
+
+```env
+AI_PROVIDER=anthropic
+ANTHROPIC_API_KEY=sk-ant-your-real-key
+ANTHROPIC_MODEL=claude-sonnet-4-6
+```
+
+Local Qwen mode with Ollama running on your host:
+
+```env
+AI_PROVIDER=ollama
+LOCAL_LLM_BASE_URL=http://host.docker.internal:11434
+LOCAL_LLM_MODEL=qwen3.6:latest
+LOCAL_LLM_CONTEXT_TOKENS=16384
+LOCAL_LLM_THINK=false
 ```
 
 ### 2. Run with Docker Compose
@@ -118,15 +136,15 @@ docker compose exec app python -m ingestion.backfill --days 365 --analyze --anal
 ```
 sentiment_node → alert_node → [context_node] → drafting_node → notify_node
                                     ↑                               │
-                              Claude tool_use                  Slack send
-                              decides which                    + slack_ts
-                              MCP tools to call                stored
+                              AI provider                     Slack send
+                              chooses context                 + slack_ts
+                              MCP tool calls                  stored
 ```
 
 1. **Data Ingestion** — Collects new Steam reviews (hourly) and patch notes from Steam News API
-2. **Sentiment Analysis** — Claude API classifies each review: sentiment score (-1.0 to 1.0) and issue tag
+2. **Sentiment Analysis** — Configured AI provider classifies each review: sentiment score (-1.0 to 1.0) and issue tag
 3. **Alert Detection** — Rolling window analysis detects sentiment drops and keyword spikes
-4. **Context Gathering** — Claude tool_use calls MCP tools to retrieve similar past issues, patch notes, and approved responses
+4. **Context Gathering** — Claude native `tool_use` or local JSON planning calls MCP tools to retrieve similar past issues, patch notes, and approved responses
 5. **Response Drafting** — Generates 3 drafts per alert (official, empathetic, concise) enriched with MCP context
 6. **Evaluation** — LLM-as-judge scores each draft (relevance, tone, accuracy, actionability) and stores scores in DB
 7. **Slack Notification** — Sends interactive messages with approve/edit/reject buttons
@@ -164,12 +182,12 @@ Available at `http://localhost:8001/sse` via SSE transport.
 | `get_community_summary` | Community activity summary |
 
 These tools serve dual purpose:
-1. **Pipeline internal** — Called via Claude tool_use during context gathering
+1. **Pipeline internal** — Called via Claude `tool_use` or local JSON planning during context gathering
 2. **External clients** — Queryable from Claude Desktop or any MCP client
 
 ## Reliability
 
-- Claude API calls use `max_retries=3` with exponential backoff (SDK-native)
+- Claude API calls use SDK-native retries. Local/OpenAI-compatible calls use configurable timeout and retry settings.
 - Pipeline runs tracked in `pipeline_runs` table (started_at, completed_at, status, error_message)
 - Slack notifications gracefully skip if tokens not configured
 - Steam collection and pipeline execution are independent — one failing doesn't crash the other
@@ -195,8 +213,9 @@ sentinelops/
 │   ├── backfill.py            # Historical review backfill utility
 │   └── scheduler.py           # APScheduler worker
 ├── agents/                    # LangGraph agents
-│   ├── graph.py               # Pipeline graph + tool_use context + run tracking
-│   ├── sentiment_agent.py     # Claude sentiment classifier
+│   ├── graph.py               # Pipeline graph + provider-aware context + run tracking
+│   ├── sentiment_agent.py     # AI sentiment classifier
+│   ├── llm_client.py          # Anthropic, Ollama, and OpenAI-compatible client
 │   ├── alert_agent.py         # Rolling window alert detector
 │   └── drafting_agent.py      # 3-tone draft generator + LLM evaluator
 ├── mcp_server/                # MCP server (SSE)

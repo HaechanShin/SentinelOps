@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - **Docker Desktop** installed and running
-- **Anthropic API Key** ([console.anthropic.com](https://console.anthropic.com))
+- **Anthropic API Key** ([console.anthropic.com](https://console.anthropic.com)) or local Ollama
 - **Steam API Key** ([steamcommunity.com/dev/apikey](https://steamcommunity.com/dev/apikey))
 
 Optional:
@@ -22,11 +22,24 @@ cp .env.example .env
 Open `.env` and fill in your API keys:
 
 ```env
+AI_PROVIDER=anthropic
 ANTHROPIC_API_KEY=sk-ant-your-real-key
 STEAM_API_KEY=your-steam-key
 ```
 
-That's it. Everything else has working defaults.
+For local Qwen through Ollama, switch the AI block instead:
+
+```env
+AI_PROVIDER=ollama
+LOCAL_LLM_BASE_URL=http://host.docker.internal:11434
+LOCAL_LLM_MODEL=qwen3.6:latest
+LOCAL_LLM_CONTEXT_TOKENS=16384
+LOCAL_LLM_THINK=false
+```
+
+Use `http://localhost:11434` for `LOCAL_LLM_BASE_URL` if you run the Python app directly outside Docker.
+
+Everything else has working defaults.
 
 ---
 
@@ -62,7 +75,7 @@ Once started, the system runs on its own:
 1. **Every hour** — Collects new Steam reviews + patch notes for PUBG
 2. **After collection** — AI analyzes each review (sentiment score + issue tag)
 3. **After analysis** — Checks for community issues (sentiment drops, keyword spikes)
-4. **If issue detected** — Claude tool_use gathers context via MCP tools (similar issues, patch notes, past responses)
+4. **If issue detected** — The configured AI provider gathers context via MCP tools (similar issues, patch notes, past responses)
 5. **Context enriched** — Generates 3 response drafts (official, empathetic, concise)
 6. **After drafting** — LLM-as-judge evaluates each draft (relevance, tone, accuracy, actionability)
 7. **Slack notification** — Sends alerts with approve/reject buttons (if configured)
@@ -178,7 +191,7 @@ Available tools:
 - `get_alert_history` — Alert history with filters
 - `get_community_summary` — Activity summary
 
-These same tools are used internally by the pipeline (via Claude tool_use) during context gathering.
+These same tools are used internally by the pipeline. Claude mode uses native `tool_use`; local provider mode asks the model for a JSON tool plan and validates it before execution.
 
 ---
 
@@ -225,5 +238,6 @@ docker compose down -v
 | Port already in use | Stop other services using ports 8000, 8001, 3000, 5432, 6379, or 9090 |
 | Grafana login doesn't work | Default credentials are `admin` / `admin` |
 | Pipeline runs but 0 alerts | Normal if sentiment is stable. Use backfill for more data, or wait for natural variation |
+| Local Qwen cannot connect from Docker | Keep Ollama running on the host and set `LOCAL_LLM_BASE_URL=http://host.docker.internal:11434` |
 | Slack bot shows "idle" | Expected if `SLACK_APP_TOKEN` is not set. System works without Slack |
 | MCP SSE returns no data | Check that postgres is healthy: `docker compose ps` |

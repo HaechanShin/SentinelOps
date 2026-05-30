@@ -1,30 +1,28 @@
-import json
 from datetime import datetime, timezone
 
-import anthropic
 import structlog
 from prometheus_client import Counter, Histogram
 from sqlalchemy import select, update
 
-from config import settings
+from agents.llm_client import complete_text, loads_json_object
 from constants import DEFAULT_ISSUE_TAG, ISSUE_TAG_DESCRIPTIONS, ISSUE_TAGS, LEGACY_TAG_ALIASES
 from db.engine import AsyncSessionLocal
 from db.models import Post
 
 logger = structlog.get_logger()
 
-SENTIMENT_REQUESTS = Counter(
-    "sentiment_analysis_total", "Total sentiment analysis requests"
-)
-SENTIMENT_LATENCY = Histogram(
-    "sentiment_analysis_seconds", "Sentiment analysis latency"
-)
+SENTIMENT_REQUESTS = Counter("sentiment_analysis_total", "Total sentiment analysis requests")
+SENTIMENT_LATENCY = Histogram("sentiment_analysis_seconds", "Sentiment analysis latency")
 
-SYSTEM_PROMPT = """You are a multilingual Steam review analyst for PUBG LiveOps monitoring.
+SYSTEM_PROMPT = (
+    """You are a multilingual Steam review analyst for PUBG LiveOps monitoring.
 
 Your job: read a Steam review in ANY language, understand its meaning, and classify it.
 
-Steam reviews come in dozens of languages (Chinese, Russian, Portuguese, Turkish, Thai, Korean, Japanese, Arabic, etc.). You MUST understand and analyze the review in its original language. Do NOT rely on keyword matching. Understand the full context and meaning of what the reviewer is saying.
+Steam reviews come in dozens of languages (Chinese, Russian, Portuguese, Turkish, Thai,
+Korean, Japanese, Arabic, etc.). You MUST understand and analyze the review in its
+original language. Do NOT rely on keyword matching. Understand the full context and
+meaning of what the reviewer is saying.
 
 Return ONLY valid JSON in this exact format:
 {"sentiment": <float>, "issue_tags": ["<tag>"], "translated": "<Korean translation>"}
@@ -43,8 +41,11 @@ Factor in the Steam recommendation signal provided with the review:
 - The actual review text takes priority if it clearly contradicts the signal.
 
 ## issue_tags (array with exactly ONE tag)
-Pick the single most relevant operational category based on what the reviewer is actually discussing:
-""" + "\n".join(f'- "{tag}": {desc}' for tag, desc in ISSUE_TAG_DESCRIPTIONS.items()) + """
+Pick the single most relevant operational category based on what the reviewer is
+actually discussing:
+"""
+    + "\n".join(f'- "{tag}": {desc}' for tag, desc in ISSUE_TAG_DESCRIPTIONS.items())
+    + """
 
 Choose based on the meaning of the review, not surface-level keywords.
 Use "general" only when the review has no specific operational topic.
@@ -52,9 +53,11 @@ Use "general" only when the review has no specific operational topic.
 ## translated (string)
 Translate the review into English.
 - If the review is already in English, copy it as-is.
-- Keep it concise — summarize if the original is very long, but preserve the key complaints or praise.
+- Keep it concise: summarize if the original is very long, but preserve the key
+  complaints or praise.
 
 Return ONLY the JSON object. No markdown, no explanation."""
+)
 
 
 def _format_review(content: str, recommended: bool | None) -> str:
@@ -68,36 +71,17 @@ def _format_review(content: str, recommended: bool | None) -> str:
 
 
 async def analyze_sentiment(content: str, recommended: bool | None = None) -> dict:
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key, max_retries=3)
-
     with SENTIMENT_LATENCY.time():
-        response = await client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=512,
+        text = await complete_text(
             system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": _format_review(content, recommended)}],
+            user=_format_review(content, recommended),
+            max_tokens=512,
+            temperature=0.1,
+            response_format={"type": "json_object"},
         )
 
     SENTIMENT_REQUESTS.inc()
-    text = response.content[0].text.strip()
-
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-
-    start = text.index("{")
-    depth = 0
-    end = start
-    for i, ch in enumerate(text[start:], start):
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                end = i + 1
-                break
-    text = text[start:end]
-
-    result = json.loads(text)
+    result = loads_json_object(text)
     raw_tags = result.get("issue_tags") or result.get("issue_tag") or []
     if isinstance(raw_tags, str):
         raw_tags = [raw_tags]
@@ -120,10 +104,7 @@ async def process_unanalyzed_posts(
     batch_size: int = 20, since: datetime | None = None
 ) -> list[dict]:
     async with AsyncSessionLocal() as session:
-        stmt = (
-            select(Post)
-            .where(Post.analyzed_at.is_(None))
-        )
+        stmt = select(Post).where(Post.analyzed_at.is_(None))
         if since is not None:
             stmt = stmt.where(Post.created_at >= since)
         stmt = stmt.order_by(Post.created_at.desc()).limit(batch_size)
@@ -150,7 +131,9 @@ async def process_unanalyzed_posts(
                     )
                     await session.execute(stmt)
                     await session.commit()
-                results.append({"post_id": str(post.id), "sentiment": 0.0, "issue_tags": ["general"]})
+                results.append(
+                    {"post_id": str(post.id), "sentiment": 0.0, "issue_tags": ["general"]}
+                )
                 continue
 
             analysis = await analyze_sentiment(post.content, recommended=post.recommended)
@@ -163,11 +146,7 @@ async def process_unanalyzed_posts(
                 }
                 if analysis.get("translated"):
                     update_values["translated_content"] = analysis["translated"]
-                stmt = (
-                    update(Post)
-                    .where(Post.id == post.id)
-                    .values(**update_values)
-                )
+                stmt = update(Post).where(Post.id == post.id).values(**update_values)
                 await session.execute(stmt)
                 await session.commit()
 

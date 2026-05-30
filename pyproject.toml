@@ -40,6 +40,16 @@ dev = [
     "mypy>=1.13.0",
 ]
 
+[tool.setuptools.packages.find]
+include = [
+    "agents*",
+    "api*",
+    "db*",
+    "ingestion*",
+    "mcp_server*",
+    "slack_app*",
+]
+
 [tool.ruff]
 target-version = "py311"
 line-length = 100

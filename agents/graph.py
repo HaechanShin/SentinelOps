@@ -3,7 +3,7 @@
 Graph flow:
   sentiment_node → alert_node → (context_node if alerts) → drafting_node → notify_node
 
-context_node uses Claude tool_use to decide which MCP tools to call.
+context_node uses Claude tool_use by default and a JSON tool planner for local providers.
 """
 
 from __future__ import annotations
@@ -21,8 +21,10 @@ from sqlalchemy.dialects.postgresql import insert
 
 from agents.alert_agent import detect_alerts
 from agents.drafting_agent import evaluate_draft, generate_drafts, store_eval_scores
+from agents.llm_client import complete_text, is_anthropic_provider, loads_json_object
 from agents.sentiment_agent import process_unanalyzed_posts
 from config import settings
+from constants import DEFAULT_ISSUE_TAG, ISSUE_TAGS, LEGACY_TAG_ALIASES
 from db.engine import AsyncSessionLocal
 from db.models import Alert, PipelineRun
 from mcp_server.server import get_official_responses, get_patch_notes, get_similar_issues
@@ -32,7 +34,10 @@ logger = structlog.get_logger()
 CONTEXT_TOOLS = [
     {
         "name": "get_similar_issues",
-        "description": "Search for similar past community issues by keyword matching. Use when you need to find how the community reacted to similar problems before.",
+        "description": (
+            "Search for similar past community issues by keyword matching. "
+            "Use when you need to find how the community reacted to similar problems before."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
@@ -51,7 +56,10 @@ CONTEXT_TOOLS = [
     },
     {
         "name": "get_patch_notes",
-        "description": "Get recent PUBG patch notes. Use when the alert might relate to a recent update, bug fix, or new feature.",
+        "description": (
+            "Get recent PUBG patch notes. Use when the alert might relate to a recent "
+            "update, bug fix, or new feature."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
@@ -65,13 +73,19 @@ CONTEXT_TOOLS = [
     },
     {
         "name": "get_official_responses",
-        "description": "Get past approved official responses for a specific issue type. Use to maintain consistent messaging tone.",
+        "description": (
+            "Get past approved official responses for a specific issue type. "
+            "Use to maintain consistent messaging tone."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "issue_tag": {
                     "type": "string",
-                    "description": "Issue tag: anti-cheat, server-stability, optimization, game-balance, new-content, matchmaking, bugs, monetization, general",
+                    "description": (
+                        "Issue tag: anti-cheat, server-stability, optimization, "
+                        "game-balance, new-content, matchmaking, bugs, monetization, general"
+                    ),
                 },
             },
             "required": ["issue_tag"],
@@ -122,12 +136,7 @@ def should_draft(state: PipelineState) -> str:
     return "end"
 
 
-async def _gather_context_for_alert(alert: dict) -> dict:
-    """Use Claude tool_use to decide which MCP tools to call for this alert."""
-    client = anthropic.AsyncAnthropic(
-        api_key=settings.anthropic_api_key, max_retries=3
-    )
-
+def _describe_alert(alert: dict) -> str:
     trigger = alert.get("trigger_data", {})
     representative = trigger.get("representative_posts", [])
 
@@ -148,6 +157,16 @@ async def _gather_context_for_alert(alert: dict) -> dict:
         for p in representative[:3]:
             alert_desc += f"- {p.get('content', '')[:200]}\n"
 
+    return alert_desc
+
+
+async def _gather_context_with_claude_tool_use(alert: dict) -> dict:
+    """Use Claude tool_use to decide which MCP tools to call for this alert."""
+    client = anthropic.AsyncAnthropic(
+        api_key=settings.anthropic_api_key,
+        max_retries=settings.anthropic_max_retries,
+    )
+
     messages = [
         {
             "role": "user",
@@ -155,7 +174,7 @@ async def _gather_context_for_alert(alert: dict) -> dict:
                 "You are gathering context for a PUBG community alert response. "
                 "Given the alert below, call the tools you need to gather relevant context. "
                 "Call at least one tool.\n\n"
-                f"{alert_desc}"
+                f"{_describe_alert(alert)}"
             ),
         }
     ]
@@ -164,7 +183,7 @@ async def _gather_context_for_alert(alert: dict) -> dict:
 
     for _ in range(3):
         response = await client.messages.create(
-            model="claude-sonnet-4-6",
+            model=settings.anthropic_model,
             max_tokens=1024,
             tools=CONTEXT_TOOLS,
             messages=messages,
@@ -209,6 +228,172 @@ async def _gather_context_for_alert(alert: dict) -> dict:
     return context
 
 
+def _representative_issue_tag(alert: dict) -> str:
+    representative = alert.get("trigger_data", {}).get("representative_posts", [])
+    for post in representative:
+        for tag in post.get("issue_tags") or []:
+            normalized = LEGACY_TAG_ALIASES.get(str(tag).strip().lower(), str(tag).strip().lower())
+            if normalized in ISSUE_TAGS:
+                return normalized
+    return DEFAULT_ISSUE_TAG
+
+
+def _alert_search_description(alert: dict) -> str:
+    trigger = alert.get("trigger_data", {})
+    parts = [str(alert.get("alert_type") or "community issue")]
+    if trigger.get("keyword"):
+        parts.append(str(trigger["keyword"]))
+    for post in trigger.get("representative_posts", [])[:3]:
+        if post.get("content"):
+            parts.append(str(post["content"])[:160])
+    return " ".join(parts)
+
+
+def _fallback_context_tool_plan(alert: dict) -> list[dict[str, Any]]:
+    return [
+        {
+            "name": "get_similar_issues",
+            "arguments": {
+                "issue_description": _alert_search_description(alert),
+                "top_k": 5,
+            },
+        },
+        {
+            "name": "get_official_responses",
+            "arguments": {"issue_tag": _representative_issue_tag(alert)},
+        },
+        {"name": "get_patch_notes", "arguments": {"recent": 3}},
+    ]
+
+
+def _coerce_positive_int(value: Any, default: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(maximum, parsed))
+
+
+def _normalize_tool_args(name: str, args: dict[str, Any], alert: dict) -> dict[str, Any]:
+    if name == "get_similar_issues":
+        description = str(args.get("issue_description") or "").strip()
+        if not description:
+            description = _alert_search_description(alert)
+        return {
+            "issue_description": description[:500],
+            "top_k": _coerce_positive_int(args.get("top_k"), 5, 10),
+        }
+
+    if name == "get_patch_notes":
+        return {"recent": _coerce_positive_int(args.get("recent"), 3, 5)}
+
+    if name == "get_official_responses":
+        raw_tag = str(args.get("issue_tag") or _representative_issue_tag(alert)).strip().lower()
+        issue_tag = LEGACY_TAG_ALIASES.get(raw_tag, raw_tag)
+        if issue_tag not in ISSUE_TAGS:
+            issue_tag = DEFAULT_ISSUE_TAG
+        return {"issue_tag": issue_tag}
+
+    return args
+
+
+def _normalize_tool_plan(plan: dict[str, Any], alert: dict) -> list[dict[str, Any]]:
+    raw_calls = plan.get("tool_calls") or plan.get("tools") or []
+    if isinstance(raw_calls, dict):
+        raw_calls = [raw_calls]
+
+    normalized = []
+    seen = set()
+    for call in raw_calls:
+        if not isinstance(call, dict):
+            continue
+        name = str(call.get("name") or call.get("tool") or "").strip()
+        if name not in TOOL_EXECUTORS:
+            continue
+
+        args = call.get("arguments") or call.get("input") or {}
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except json.JSONDecodeError:
+                args = {}
+        if not isinstance(args, dict):
+            args = {}
+
+        clean_args = _normalize_tool_args(name, args, alert)
+        dedupe_key = (name, json.dumps(clean_args, sort_keys=True, default=str))
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        normalized.append({"name": name, "arguments": clean_args})
+
+    return normalized[:3] or _fallback_context_tool_plan(alert)
+
+
+async def _plan_context_tools(alert: dict) -> list[dict[str, Any]]:
+    prompt = f"""You are gathering context for a PUBG community alert response.
+Choose the MCP tools that will retrieve useful context for the alert below.
+
+Available tools:
+{json.dumps(CONTEXT_TOOLS, indent=2)}
+
+Return ONLY valid JSON in this exact shape:
+{{
+  "tool_calls": [
+    {{
+      "name": "get_similar_issues",
+      "arguments": {{"issue_description": "...", "top_k": 5}}
+    }}
+  ]
+}}
+
+Rules:
+- Call 1 to 3 tools.
+- Prefer get_similar_issues for player complaints or incidents.
+- Use get_official_responses when an issue tag is clear.
+- Use get_patch_notes when the alert may relate to a recent update, bug fix, or balance change.
+
+Alert:
+{_describe_alert(alert)}"""
+
+    try:
+        text = await complete_text(
+            system="You select data-gathering tools and return only JSON.",
+            user=prompt,
+            max_tokens=768,
+            temperature=0.1,
+            response_format={"type": "json_object"},
+        )
+        return _normalize_tool_plan(loads_json_object(text), alert)
+    except Exception:
+        logger.exception("context_tool_planning_failed", alert_id=alert.get("id"))
+        return _fallback_context_tool_plan(alert)
+
+
+async def _gather_context_with_json_tool_plan(alert: dict) -> dict:
+    context = {}
+    for call in await _plan_context_tools(alert):
+        name = call["name"]
+        executor = TOOL_EXECUTORS[name]
+        try:
+            result = await executor(call["arguments"])
+            ctx_key = CONTEXT_KEY_MAP[name]
+            if ctx_key == "official_responses":
+                context.setdefault(ctx_key, []).extend(result)
+            else:
+                context[ctx_key] = result
+        except Exception:
+            logger.exception("tool_execution_failed", tool=name)
+
+    return context
+
+
+async def _gather_context_for_alert(alert: dict) -> dict:
+    if is_anthropic_provider():
+        return await _gather_context_with_claude_tool_use(alert)
+    return await _gather_context_with_json_tool_plan(alert)
+
+
 async def context_node(state: PipelineState) -> PipelineState:
     logger.info("pipeline_context_start")
     all_contexts = {}
@@ -247,9 +432,7 @@ async def drafting_node(state: PipelineState) -> PipelineState:
             try:
                 issue_ctx = _alert_to_context_str(alert)
                 scores = await evaluate_draft(draft["content"], issue_ctx)
-                all_evaluations.append(
-                    {"draft_id": draft["id"], "scores": scores}
-                )
+                all_evaluations.append({"draft_id": draft["id"], "scores": scores})
                 await store_eval_scores(draft["id"], scores)
             except Exception:
                 logger.exception("evaluation_failed", draft_id=draft["id"])
@@ -269,31 +452,24 @@ async def notify_node(state: PipelineState) -> PipelineState:
     if not settings.slack_bot_token or settings.slack_bot_token.startswith("xoxb-xxxx"):
         logger.warning("slack_not_configured", msg="Skipping Slack notifications")
         for alert in state.get("alerts", []):
-            notifications.append(
-                {"alert_id": alert.get("id"), "status": "skipped_no_slack"}
-            )
+            notifications.append({"alert_id": alert.get("id"), "status": "skipped_no_slack"})
         return {"notifications": notifications}
 
-    from slack_app.handlers.alert_handler import send_alert
     from slack_sdk.web.async_client import AsyncWebClient
+
+    from slack_app.handlers.alert_handler import send_alert
 
     client = AsyncWebClient(token=settings.slack_bot_token)
 
     for alert in state.get("alerts", []):
-        alert_drafts = [
-            d for d in state.get("drafts", []) if d.get("alert_id") == alert.get("id")
-        ]
+        alert_drafts = [d for d in state.get("drafts", []) if d.get("alert_id") == alert.get("id")]
 
         try:
             ts = await send_alert(client, alert, drafts=alert_drafts or None)
 
             if ts:
                 async with AsyncSessionLocal() as session:
-                    stmt = (
-                        sql_update(Alert)
-                        .where(Alert.id == alert.get("id"))
-                        .values(slack_ts=ts)
-                    )
+                    stmt = sql_update(Alert).where(Alert.id == alert.get("id")).values(slack_ts=ts)
                     await session.execute(stmt)
                     await session.commit()
 
@@ -310,9 +486,7 @@ async def notify_node(state: PipelineState) -> PipelineState:
             logger.info("slack_alert_sent", alert_id=alert.get("id"), ts=ts)
         except Exception:
             logger.exception("slack_notification_failed", alert_id=alert.get("id"))
-            notifications.append(
-                {"alert_id": alert.get("id"), "status": "error"}
-            )
+            notifications.append({"alert_id": alert.get("id"), "status": "error"})
 
     return {"notifications": notifications}
 

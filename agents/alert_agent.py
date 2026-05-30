@@ -85,9 +85,7 @@ async def get_keyword_frequencies(minutes: int = 60) -> dict:
     return {"recent": dict(recent_tags), "earlier": dict(earlier_tags)}
 
 
-async def get_representative_posts(
-    issue_tags: list[str], limit: int = 3
-) -> list[dict]:
+async def get_representative_posts(issue_tags: list[str], limit: int = 3) -> list[dict]:
     now = datetime.now(timezone.utc)
     window_start = now - timedelta(minutes=settings.rolling_window_minutes)
 
@@ -122,14 +120,13 @@ async def detect_alerts() -> list[dict]:
     sentiment_data = await get_sentiment_window(settings.rolling_window_minutes)
     keyword_data = await get_keyword_frequencies(settings.rolling_window_minutes)
 
-    if (
-        sentiment_data["earlier_count"] >= 3
-        and sentiment_data["recent_count"] >= 3
-    ):
+    if sentiment_data["earlier_count"] >= 3 and sentiment_data["recent_count"] >= 3:
         drop = sentiment_data["earlier_avg"] - sentiment_data["recent_avg"]
         if drop >= settings.sentiment_drop_threshold:
             severity = "high" if drop >= 0.5 else "medium" if drop >= 0.3 else "low"
-            representative = await get_representative_posts(["server-stability", "bugs", "anti-cheat"])
+            representative = await get_representative_posts(
+                ["server-stability", "bugs", "anti-cheat"]
+            )
 
             alert = {
                 "alert_type": "sentiment_drop",
@@ -199,8 +196,7 @@ async def detect_alerts() -> list[dict]:
 
             alert_id = uuid.uuid4()
             related_ids = [
-                p["external_id"]
-                for p in alert_data["trigger_data"].get("representative_posts", [])
+                p["external_id"] for p in alert_data["trigger_data"].get("representative_posts", [])
             ]
             stmt = insert(Alert).values(
                 id=alert_id,

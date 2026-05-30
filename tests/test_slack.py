@@ -1,5 +1,3 @@
-import pytest
-
 from slack_app.handlers.alert_handler import build_alert_blocks
 
 
