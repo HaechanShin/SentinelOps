@@ -6,6 +6,26 @@ The repo ships with PUBG defaults, but the pipeline is game-agnostic — point i
 
 > Unofficial demo project. Not affiliated with KRAFTON or PUBG Studios.
 
+## In Action
+
+### Grafana Dashboard (`localhost:3000`)
+
+Real-time overview of community health — sentiment trends, recommendation ratios, issue-tag distribution, and recent reviews at a glance.
+
+![Grafana Dashboard](Image/Dashboard%20local3000.png)
+
+### Claude Desktop via MCP
+
+Ask Claude anything about your community through the MCP server. Here, a single prompt returns a structured 24-hour sentiment summary, top complaints ranked by severity, and a prioritized action plan.
+
+![MCP Example](Image/MCP%20example.png)
+
+### Slack Alert with Response Drafts
+
+When sentiment drops beyond the threshold, SentinelOps pushes an alert to Slack with representative posts and three ready-to-send response drafts (Official / Empathetic / Concise). Community managers approve, edit, or reject — approved drafts feed back into the system for future context.
+
+![Slack Alert](Image/Slack%20Alert.png)
+
 ## Architecture
 
 ```
