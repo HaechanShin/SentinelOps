@@ -39,6 +39,16 @@ LOCAL_LLM_THINK=false
 
 Use `http://localhost:11434` for `LOCAL_LLM_BASE_URL` if you run the Python app directly outside Docker.
 
+> ⚠️ **Free RAM needed for local LLMs**
+>
+> Large local models are memory-hungry. The defaults above (`qwen3.6:latest`, 16K context) need **~20 GB of free system RAM** (weights ~18 GB + KV cache). Background apps (Chrome, IDEs, other Docker workloads) easily eat into that.
+>
+> If Ollama returns `500 Internal Server Error` with `model requires more system memory ... than is available`, pick one:
+> - **Free RAM** — close browser tabs, heavy apps, and re-run
+> - **Smaller model** — `ollama pull qwen3:8b` (or `qwen2.5:7b-instruct`) and set `LOCAL_LLM_MODEL=qwen3:8b` (~5–6 GB)
+> - **Smaller context window** — `LOCAL_LLM_CONTEXT_TOKENS=8192` or `4096` (saves some KV cache memory but won't overcome a missing-weight shortfall)
+> - **Switch to Anthropic** — `AI_PROVIDER=anthropic` (no local memory pressure)
+
 Everything else has working defaults.
 
 ---
@@ -253,6 +263,7 @@ docker compose down -v
 | Grafana login doesn't work | Default credentials are `admin` / `admin` |
 | Pipeline runs but 0 alerts | Normal if sentiment is stable. Daily alert pipeline only fires once per day at `DAILY_ALERT_HOUR_UTC` — check `pipeline_runs` table or run `curl -X POST localhost:8000/api/v1/pipeline/run -H "X-API-Key: ..."` to force a run |
 | Local Qwen cannot connect from Docker | Keep Ollama running on the host and set `LOCAL_LLM_BASE_URL=http://host.docker.internal:11434` |
+| Ollama 500: `model requires more system memory` | Free RAM (close Chrome/IDEs), use a smaller model (`qwen3:8b`), reduce `LOCAL_LLM_CONTEXT_TOKENS`, or switch to `AI_PROVIDER=anthropic`. Big local models need ~20 GB free RAM |
 | Slack bot shows "idle" | Expected if `SLACK_APP_TOKEN` is not set. System works without Slack |
 | MCP SSE returns no data | Check that postgres is healthy: `docker compose ps` |
 | Worker stopped updating | Check `docker compose logs worker` for the most recent exception, then `docker compose restart worker`. Worker now has `restart: unless-stopped` and an APScheduler error listener |

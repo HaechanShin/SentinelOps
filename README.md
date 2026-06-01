@@ -2,7 +2,7 @@
 
 Real-time community monitoring and response drafting system for any Steam game. Collects Steam reviews, analyzes sentiment, detects issues, and provides AI-generated response drafts with approval-gated workflows.
 
-The repo ships with PUBG defaults, but the pipeline is game-agnostic — point it at any Steam title by changing two environment variables (`STEAM_APP_ID` and `GAME_NAME`). See [Targeting a different game](#targeting-a-different-game).
+The repo ships with PUBG defaults, but the pipeline is game-agnostic — point it at any Steam title by changing an environment variables (`STEAM_APP_ID`). See [Targeting a different game](#targeting-a-different-game).
 
 > Unofficial demo project. Not affiliated with KRAFTON or PUBG Studios.
 
@@ -78,6 +78,8 @@ LOCAL_LLM_MODEL=qwen3.6:latest
 LOCAL_LLM_CONTEXT_TOKENS=16384
 LOCAL_LLM_THINK=false
 ```
+
+> **Memory requirements for local LLMs:** large reasoning models like `qwen3.6:latest` need roughly **20 GB of free system RAM** (model weights ~18 GB + KV cache for the configured context length). On a 16 GB machine you'll see `model requires more system memory` 500 errors from Ollama. Either free memory (close Chrome/IDEs/other Docker workloads), drop to a smaller model (`qwen3:8b`, `qwen2.5:7b-instruct` — ~5–6 GB), reduce `LOCAL_LLM_CONTEXT_TOKENS` (e.g. 8192 or 4096), or switch to `AI_PROVIDER=anthropic`.
 
 ### 2. Run with Docker Compose
 
