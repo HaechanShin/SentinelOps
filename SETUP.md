@@ -70,20 +70,23 @@ In Grafana, go to **Dashboards → SentinelOps — Community Monitoring** to see
 
 ## 4. What Happens Automatically
 
-Once started, the system runs on its own:
+Once started, the system runs on its own. Work is split into two cadences:
 
-1. **Every hour** — Collects new Steam reviews + patch notes for PUBG
-2. **After collection** — AI analyzes each review (sentiment score + issue tag)
-3. **After analysis** — Checks for community issues (sentiment drops, keyword spikes)
-4. **If issue detected** — The configured AI provider gathers context via MCP tools (similar issues, patch notes, past responses)
-5. **Context enriched** — Generates 3 response drafts (official, empathetic, concise)
-6. **After drafting** — LLM-as-judge evaluates each draft (relevance, tone, accuracy, actionability)
-7. **Slack notification** — Sends alerts with approve/reject buttons (if configured)
-8. **On approval** — Approved drafts are stored as official responses, used as context for future drafts
+**Hourly (collection + sentiment analysis)**
+1. Collects new Steam reviews + patch notes for the configured `STEAM_APP_ID` / `GAME_NAME`
+2. AI analyzes any unanalyzed review (sentiment score + issue tag)
+
+**Daily (alert detection + response drafting)** — runs once per day at `DAILY_ALERT_HOUR_UTC` (default `0` = UTC 00:00, which is KST 09:00)
+3. Compares the most recent 24h to the prior 24h for sentiment drops and keyword spikes
+4. If issue detected — the configured AI provider gathers context via MCP tools (similar issues, patch notes, past responses, sentiment trend, prior alerts, top complaints, response effectiveness)
+5. Generates 3 response drafts (official, empathetic, concise) using the enriched context
+6. LLM-as-judge evaluates each draft (relevance, tone, accuracy, actionability)
+7. Sends Slack alerts with the MCP context summary + approve/reject buttons (if Slack configured)
+8. On approval — drafts are stored as official responses and feed future draft context
 
 Every pipeline run is tracked in the `pipeline_runs` table with status, timing, and counts.
 
-You don't need to trigger anything manually. The first collection runs immediately on startup, then every hour after that.
+You don't need to trigger anything manually. The first hourly collection runs immediately on startup; subsequent hourly runs follow `POLLING_INTERVAL_SECONDS`; the daily alert pipeline fires on its UTC cron schedule.
 
 ---
 
@@ -169,7 +172,7 @@ Without Slack configured, the system still works — it just won't send notifica
 
 ## 8. MCP Server — Claude Desktop Integration (Optional)
 
-The MCP server exposes 6 tools over SSE at `http://localhost:8001/sse`. You can connect Claude Desktop to query your community data interactively.
+The MCP server exposes 8 tools over SSE at `http://localhost:8001/sse`. You can connect Claude Desktop to query your community data interactively.
 
 Add to your Claude Desktop config (`claude_desktop_config.json`):
 
@@ -196,9 +199,11 @@ Available tools:
 - `get_similar_issues` — Search past community issues by keyword
 - `get_official_responses` — Get approved response templates by issue tag
 - `get_sentiment_trend` — Hourly sentiment averages
-- `get_patch_notes` — Recent PUBG patch notes
+- `get_patch_notes` — Recent patch notes for the configured game
 - `get_alert_history` — Alert history with filters
 - `get_community_summary` — Activity summary
+- `get_top_complaints` — Top complaint topics in a recent window with example posts
+- `get_response_effectiveness` — Sentiment shift for an issue tag before/after the latest approved response
 
 These same tools are used internally by the pipeline. Claude mode uses native `tool_use`; local provider mode asks the model for a JSON tool plan and validates it before execution.
 
@@ -246,7 +251,8 @@ docker compose down -v
 | "No such image" error | Run `docker compose up --build` instead of `docker compose up` |
 | Port already in use | Stop other services using ports 8000, 8001, 3000, 5432, 6379, or 9090 |
 | Grafana login doesn't work | Default credentials are `admin` / `admin` |
-| Pipeline runs but 0 alerts | Normal if sentiment is stable. Use backfill for more data, or wait for natural variation |
+| Pipeline runs but 0 alerts | Normal if sentiment is stable. Daily alert pipeline only fires once per day at `DAILY_ALERT_HOUR_UTC` — check `pipeline_runs` table or run `curl -X POST localhost:8000/api/v1/pipeline/run -H "X-API-Key: ..."` to force a run |
 | Local Qwen cannot connect from Docker | Keep Ollama running on the host and set `LOCAL_LLM_BASE_URL=http://host.docker.internal:11434` |
 | Slack bot shows "idle" | Expected if `SLACK_APP_TOKEN` is not set. System works without Slack |
 | MCP SSE returns no data | Check that postgres is healthy: `docker compose ps` |
+| Worker stopped updating | Check `docker compose logs worker` for the most recent exception, then `docker compose restart worker`. Worker now has `restart: unless-stopped` and an APScheduler error listener |

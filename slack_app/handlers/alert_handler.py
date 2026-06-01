@@ -10,7 +10,63 @@ def _severity_emoji(severity: str) -> str:
     return {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(severity, "⚪")
 
 
-def build_alert_blocks(alert: dict, drafts: list[dict] | None = None) -> list[dict]:
+def _build_context_summary_block(context: dict | None) -> dict | None:
+    if not context:
+        return None
+
+    lines: list[str] = []
+
+    trend = context.get("sentiment_trend") or []
+    if trend:
+        recent = trend[-1]
+        avg = recent.get("avg_sentiment")
+        count = recent.get("post_count")
+        lines.append(f"• Latest hour sentiment: *{avg}* (n={count})")
+
+    history = context.get("alert_history") or []
+    if history:
+        lines.append(f"• Prior alerts in window: *{len(history)}*")
+
+    complaints = (context.get("top_complaints") or {}).get("complaints") or []
+    if complaints:
+        top = ", ".join(
+            f"{c.get('issue_tag')}({c.get('count')})" for c in complaints[:3]
+        )
+        lines.append(f"• Top complaint topics: {top}")
+
+    similar = context.get("similar_issues") or []
+    if similar:
+        lines.append(f"• Similar past issues found: *{len(similar)}*")
+
+    responses = context.get("official_responses") or []
+    if responses:
+        lines.append(f"• Approved past responses referenced: *{len(responses)}*")
+
+    effectiveness = context.get("response_effectiveness")
+    if effectiveness and effectiveness.get("verdict") not in (None, "no_official_response"):
+        verdict = effectiveness.get("verdict")
+        shift = effectiveness.get("sentiment_shift")
+        lines.append(f"• Prior response shift for this tag: *{shift}* → _{verdict}_")
+
+    patches = context.get("patch_notes") or []
+    if patches:
+        titles = "; ".join((p.get("title") or "")[:60] for p in patches[:2])
+        lines.append(f"• Recent patch notes: {titles}")
+
+    if not lines:
+        return None
+
+    return {
+        "type": "section",
+        "text": {"type": "mrkdwn", "text": "*MCP context summary:*\n" + "\n".join(lines)},
+    }
+
+
+def build_alert_blocks(
+    alert: dict,
+    drafts: list[dict] | None = None,
+    context: dict | None = None,
+) -> list[dict]:
     trigger = alert.get("trigger_data", {})
     severity = alert.get("severity", "unknown")
     alert_type = alert.get("alert_type", "unknown")
@@ -71,6 +127,11 @@ def build_alert_blocks(alert: dict, drafts: list[dict] | None = None) -> list[di
             blocks.append(
                 {"type": "section", "text": {"type": "mrkdwn", "text": text}}
             )
+
+    context_block = _build_context_summary_block(context)
+    if context_block:
+        blocks.append({"type": "divider"})
+        blocks.append(context_block)
 
     if drafts:
         blocks.append({"type": "divider"})
@@ -151,8 +212,9 @@ async def send_alert(
     client: AsyncWebClient,
     alert: dict,
     drafts: list[dict] | None = None,
+    context: dict | None = None,
 ) -> str | None:
-    blocks = build_alert_blocks(alert, drafts)
+    blocks = build_alert_blocks(alert, drafts, context=context)
 
     try:
         result = await client.chat_postMessage(

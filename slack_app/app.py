@@ -50,7 +50,7 @@ def create_app():
             )
         else:
             await say(
-                "I'm SentinelOps! I monitor the PUBG community.\n"
+                "I'm SentinelOps! I monitor the game's Steam community.\n"
                 "Try mentioning me with `status` or `summary` for a report."
             )
 

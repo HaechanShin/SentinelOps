@@ -149,7 +149,27 @@ def register_handlers(app):
 
         from agents.drafting_agent import generate_drafts
 
-        drafts = await generate_drafts({"id": alert_id, "alert_type": "manual"})
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(select(Alert).where(Alert.id == alert_id))
+            alert = result.scalar_one_or_none()
+
+        if not alert:
+            await say(f"⚠️ Alert `{alert_id}` not found.")
+            return
+
+        alert_data = {
+            "id": str(alert.id),
+            "alert_type": alert.alert_type,
+            "severity": alert.severity,
+            "trigger_data": alert.trigger_data or {},
+        }
+        drafts = await generate_drafts(alert_data)
+        if not drafts:
+            await say(
+                f"⚠️ No drafts could be generated for alert `{alert_id}` — "
+                "the alert has no review context to draft from."
+            )
+            return
         for draft in drafts:
             await say(
                 f"*[{draft['tone'].title()}]*\n{draft['content']}"

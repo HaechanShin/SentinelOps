@@ -27,7 +27,15 @@ from config import settings
 from constants import DEFAULT_ISSUE_TAG, ISSUE_TAGS, LEGACY_TAG_ALIASES
 from db.engine import AsyncSessionLocal
 from db.models import Alert, PipelineRun
-from mcp_server.server import get_official_responses, get_patch_notes, get_similar_issues
+from mcp_server.server import (
+    get_alert_history,
+    get_official_responses,
+    get_patch_notes,
+    get_response_effectiveness,
+    get_sentiment_trend,
+    get_similar_issues,
+    get_top_complaints,
+)
 
 logger = structlog.get_logger()
 
@@ -57,8 +65,8 @@ CONTEXT_TOOLS = [
     {
         "name": "get_patch_notes",
         "description": (
-            "Get recent PUBG patch notes. Use when the alert might relate to a recent "
-            "update, bug fix, or new feature."
+            "Get recent patch notes for the monitored game. Use when the alert might relate "
+            "to a recent update, bug fix, or new feature."
         ),
         "input_schema": {
             "type": "object",
@@ -91,6 +99,73 @@ CONTEXT_TOOLS = [
             "required": ["issue_tag"],
         },
     },
+    {
+        "name": "get_sentiment_trend",
+        "description": (
+            "Get hourly sentiment averages over a recent window. Use to understand whether "
+            "this alert is part of an ongoing trend or a sudden spike."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "hours": {
+                    "type": "integer",
+                    "description": "Hours of trend data to retrieve (default 24)",
+                    "default": 24,
+                },
+            },
+        },
+    },
+    {
+        "name": "get_alert_history",
+        "description": (
+            "Get recent alerts to check whether this issue is recurring. Useful to decide "
+            "if a response should escalate or reference past similar incidents."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "hours": {
+                    "type": "integer",
+                    "description": "Hours of alert history (default 168 = 7 days)",
+                    "default": 168,
+                },
+                "alert_type": {
+                    "type": "string",
+                    "description": "Optional filter: sentiment_drop or keyword_spike",
+                },
+            },
+        },
+    },
+    {
+        "name": "get_top_complaints",
+        "description": (
+            "Get the top complaint topics with example posts in a recent window. "
+            "Use to understand what players are most frustrated about right now."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "hours": {"type": "integer", "default": 24},
+                "top_k": {"type": "integer", "default": 5},
+            },
+        },
+    },
+    {
+        "name": "get_response_effectiveness",
+        "description": (
+            "Check how community sentiment shifted after the last approved response for this "
+            "issue tag. Use to learn whether prior messaging worked before drafting a new one."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "issue_tag": {"type": "string"},
+                "window_days": {"type": "integer", "default": 3},
+            },
+            "required": ["issue_tag"],
+        },
+    },
 ]
 
 TOOL_EXECUTORS = {
@@ -99,12 +174,26 @@ TOOL_EXECUTORS = {
     ),
     "get_patch_notes": lambda args: get_patch_notes(args.get("recent", 3)),
     "get_official_responses": lambda args: get_official_responses(args["issue_tag"]),
+    "get_sentiment_trend": lambda args: get_sentiment_trend(args.get("hours", 24)),
+    "get_alert_history": lambda args: get_alert_history(
+        args.get("hours", 168), args.get("alert_type"), None
+    ),
+    "get_top_complaints": lambda args: get_top_complaints(
+        args.get("hours", 24), args.get("top_k", 5), args.get("max_examples_per_tag", 2)
+    ),
+    "get_response_effectiveness": lambda args: get_response_effectiveness(
+        args["issue_tag"], args.get("window_days", 3)
+    ),
 }
 
 CONTEXT_KEY_MAP = {
     "get_similar_issues": "similar_issues",
     "get_patch_notes": "patch_notes",
     "get_official_responses": "official_responses",
+    "get_sentiment_trend": "sentiment_trend",
+    "get_alert_history": "alert_history",
+    "get_top_complaints": "top_complaints",
+    "get_response_effectiveness": "response_effectiveness",
 }
 
 
@@ -171,7 +260,7 @@ async def _gather_context_with_claude_tool_use(alert: dict) -> dict:
         {
             "role": "user",
             "content": (
-                "You are gathering context for a PUBG community alert response. "
+                "You are gathering context for a game community alert response. "
                 "Given the alert below, call the tools you need to gather relevant context. "
                 "Call at least one tool.\n\n"
                 f"{_describe_alert(alert)}"
@@ -181,7 +270,7 @@ async def _gather_context_with_claude_tool_use(alert: dict) -> dict:
 
     context = {}
 
-    for _ in range(3):
+    for _ in range(5):
         response = await client.messages.create(
             model=settings.anthropic_model,
             max_tokens=1024,
@@ -250,6 +339,7 @@ def _alert_search_description(alert: dict) -> str:
 
 
 def _fallback_context_tool_plan(alert: dict) -> list[dict[str, Any]]:
+    issue_tag = _representative_issue_tag(alert)
     return [
         {
             "name": "get_similar_issues",
@@ -260,9 +350,14 @@ def _fallback_context_tool_plan(alert: dict) -> list[dict[str, Any]]:
         },
         {
             "name": "get_official_responses",
-            "arguments": {"issue_tag": _representative_issue_tag(alert)},
+            "arguments": {"issue_tag": issue_tag},
         },
         {"name": "get_patch_notes", "arguments": {"recent": 3}},
+        {"name": "get_top_complaints", "arguments": {"hours": 24, "top_k": 5}},
+        {
+            "name": "get_response_effectiveness",
+            "arguments": {"issue_tag": issue_tag, "window_days": 3},
+        },
     ]
 
 
@@ -293,6 +388,34 @@ def _normalize_tool_args(name: str, args: dict[str, Any], alert: dict) -> dict[s
         if issue_tag not in ISSUE_TAGS:
             issue_tag = DEFAULT_ISSUE_TAG
         return {"issue_tag": issue_tag}
+
+    if name == "get_sentiment_trend":
+        return {"hours": _coerce_positive_int(args.get("hours"), 24, 168)}
+
+    if name == "get_alert_history":
+        result: dict[str, Any] = {
+            "hours": _coerce_positive_int(args.get("hours"), 168, 720),
+        }
+        alert_type = str(args.get("alert_type") or "").strip().lower()
+        if alert_type in {"sentiment_drop", "keyword_spike"}:
+            result["alert_type"] = alert_type
+        return result
+
+    if name == "get_top_complaints":
+        return {
+            "hours": _coerce_positive_int(args.get("hours"), 24, 168),
+            "top_k": _coerce_positive_int(args.get("top_k"), 5, 10),
+        }
+
+    if name == "get_response_effectiveness":
+        raw_tag = str(args.get("issue_tag") or _representative_issue_tag(alert)).strip().lower()
+        issue_tag = LEGACY_TAG_ALIASES.get(raw_tag, raw_tag)
+        if issue_tag not in ISSUE_TAGS:
+            issue_tag = DEFAULT_ISSUE_TAG
+        return {
+            "issue_tag": issue_tag,
+            "window_days": _coerce_positive_int(args.get("window_days"), 3, 14),
+        }
 
     return args
 
@@ -327,11 +450,11 @@ def _normalize_tool_plan(plan: dict[str, Any], alert: dict) -> list[dict[str, An
         seen.add(dedupe_key)
         normalized.append({"name": name, "arguments": clean_args})
 
-    return normalized[:3] or _fallback_context_tool_plan(alert)
+    return normalized[:5] or _fallback_context_tool_plan(alert)
 
 
 async def _plan_context_tools(alert: dict) -> list[dict[str, Any]]:
-    prompt = f"""You are gathering context for a PUBG community alert response.
+    prompt = f"""You are gathering context for a game community alert response.
 Choose the MCP tools that will retrieve useful context for the alert below.
 
 Available tools:
@@ -348,10 +471,14 @@ Return ONLY valid JSON in this exact shape:
 }}
 
 Rules:
-- Call 1 to 3 tools.
+- Call 2 to 5 tools.
 - Prefer get_similar_issues for player complaints or incidents.
 - Use get_official_responses when an issue tag is clear.
 - Use get_patch_notes when the alert may relate to a recent update, bug fix, or balance change.
+- Use get_sentiment_trend to check whether this alert is part of an ongoing slide.
+- Use get_alert_history to see whether this issue has been flagged recently before.
+- Use get_top_complaints when the alert is a broad sentiment drop without a clear cause.
+- Use get_response_effectiveness when an issue tag is clear and you want to know if past messaging worked.
 
 Alert:
 {_describe_alert(alert)}"""
@@ -460,12 +587,16 @@ async def notify_node(state: PipelineState) -> PipelineState:
     from slack_app.handlers.alert_handler import send_alert
 
     client = AsyncWebClient(token=settings.slack_bot_token)
+    all_contexts = state.get("context", {})
 
     for alert in state.get("alerts", []):
         alert_drafts = [d for d in state.get("drafts", []) if d.get("alert_id") == alert.get("id")]
+        alert_context = all_contexts.get(alert.get("id"))
 
         try:
-            ts = await send_alert(client, alert, drafts=alert_drafts or None)
+            ts = await send_alert(
+                client, alert, drafts=alert_drafts or None, context=alert_context
+            )
 
             if ts:
                 async with AsyncSessionLocal() as session:
@@ -499,17 +630,25 @@ def _alert_to_context_str(alert: dict) -> str:
     return " | ".join(parts)
 
 
-def build_graph() -> StateGraph:
+def build_sentiment_graph() -> StateGraph:
+    """Hourly pipeline: sentiment analysis only. Alerts are evaluated daily."""
+    graph = StateGraph(PipelineState)
+    graph.add_node("sentiment", sentiment_node)
+    graph.set_entry_point("sentiment")
+    graph.add_edge("sentiment", END)
+    return graph
+
+
+def build_alert_graph() -> StateGraph:
+    """Daily pipeline: alert detection → context → drafting → notify."""
     graph = StateGraph(PipelineState)
 
-    graph.add_node("sentiment", sentiment_node)
     graph.add_node("alert", alert_node)
     graph.add_node("context", context_node)
     graph.add_node("drafting", drafting_node)
     graph.add_node("notify", notify_node)
 
-    graph.set_entry_point("sentiment")
-    graph.add_edge("sentiment", "alert")
+    graph.set_entry_point("alert")
     graph.add_conditional_edges("alert", should_draft, {"draft": "context", "end": END})
     graph.add_edge("context", "drafting")
     graph.add_edge("drafting", "notify")
@@ -518,12 +657,13 @@ def build_graph() -> StateGraph:
     return graph
 
 
-pipeline = build_graph().compile()
+sentiment_pipeline = build_sentiment_graph().compile()
+alert_pipeline = build_alert_graph().compile()
 
 
-async def run_pipeline() -> dict[str, Any]:
+async def _run_pipeline(pipeline_obj, run_label: str) -> dict[str, Any]:
     run_id = uuid.uuid4()
-    logger.info("pipeline_run_start", run_id=str(run_id))
+    logger.info("pipeline_run_start", run_id=str(run_id), label=run_label)
 
     async with AsyncSessionLocal() as session:
         stmt = insert(PipelineRun).values(id=run_id, status="running")
@@ -531,7 +671,7 @@ async def run_pipeline() -> dict[str, Any]:
         await session.commit()
 
     try:
-        result = await pipeline.ainvoke({})
+        result = await pipeline_obj.ainvoke({})
 
         async with AsyncSessionLocal() as session:
             stmt = (
@@ -551,6 +691,7 @@ async def run_pipeline() -> dict[str, Any]:
         logger.info(
             "pipeline_run_complete",
             run_id=str(run_id),
+            label=run_label,
             sentiments=len(result.get("sentiment_results", [])),
             alerts=len(result.get("alerts", [])),
             drafts=len(result.get("drafts", [])),
@@ -572,5 +713,22 @@ async def run_pipeline() -> dict[str, Any]:
             await session.execute(stmt)
             await session.commit()
 
-        logger.exception("pipeline_run_failed", run_id=str(run_id))
+        logger.exception("pipeline_run_failed", run_id=str(run_id), label=run_label)
         raise
+
+
+async def run_sentiment_pipeline() -> dict[str, Any]:
+    """Hourly: collect + analyze sentiment (no alerting)."""
+    return await _run_pipeline(sentiment_pipeline, "sentiment")
+
+
+async def run_alert_pipeline() -> dict[str, Any]:
+    """Daily: detect alerts on the recent 24h vs prior 24h, draft + notify."""
+    return await _run_pipeline(alert_pipeline, "alert")
+
+
+# Backward-compat shim — older callers (manual triggers, tests) may import run_pipeline.
+async def run_pipeline() -> dict[str, Any]:
+    sentiment_result = await run_sentiment_pipeline()
+    alert_result = await run_alert_pipeline()
+    return {**sentiment_result, **alert_result}

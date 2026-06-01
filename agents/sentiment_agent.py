@@ -15,7 +15,7 @@ SENTIMENT_REQUESTS = Counter("sentiment_analysis_total", "Total sentiment analys
 SENTIMENT_LATENCY = Histogram("sentiment_analysis_seconds", "Sentiment analysis latency")
 
 SYSTEM_PROMPT = (
-    """You are a multilingual Steam review analyst for PUBG LiveOps monitoring.
+    """You are a multilingual Steam review analyst for game LiveOps monitoring.
 
 Your job: read a Steam review in ANY language, understand its meaning, and classify it.
 

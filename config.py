@@ -45,10 +45,12 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
     polling_interval_seconds: int = 3600
-    sentiment_drop_threshold: float = 0.3
+    sentiment_drop_threshold: float = 0.2
     spike_multiplier: float = 2.0
-    rolling_window_minutes: int = 60
-    alert_cooldown_minutes: int = 120
+    alert_window_hours: int = 24
+    alert_min_sample_size: int = 20
+    alert_cooldown_hours: int = 24
+    daily_alert_hour_utc: int = 0
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

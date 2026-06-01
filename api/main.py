@@ -37,7 +37,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="SentinelOps",
-    description="PUBG Community AI Ops System — Real-time sentiment monitoring and response drafting",
+    description=(
+        "Steam Game Community AI Ops System — "
+        "Real-time sentiment monitoring and response drafting"
+    ),
     version="1.0.0",
     lifespan=lifespan,
 )

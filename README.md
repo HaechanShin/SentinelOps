@@ -1,6 +1,8 @@
-# SentinelOps — PUBG Community AI Ops System
+# SentinelOps — Steam Community AI Ops System
 
-Real-time community monitoring and response drafting system for PUBG. Collects Steam reviews, analyzes sentiment, detects issues, and provides AI-generated response drafts with approval-gated workflows.
+Real-time community monitoring and response drafting system for any Steam game. Collects Steam reviews, analyzes sentiment, detects issues, and provides AI-generated response drafts with approval-gated workflows.
+
+The repo ships with PUBG defaults, but the pipeline is game-agnostic — point it at any Steam title by changing two environment variables (`STEAM_APP_ID` and `GAME_NAME`). See [Targeting a different game](#targeting-a-different-game).
 
 > Unofficial demo project. Not affiliated with KRAFTON or PUBG Studios.
 
@@ -118,6 +120,24 @@ Add to your Claude Desktop config (`claude_desktop_config.json`):
 
 > **Windows note:** If Claude Desktop can't find `npx`, replace `"npx"` with the full path (e.g., `"C:\\Program Files\\nodejs\\npx.cmd"`).
 > Requires Node.js 18+. Restart Claude Desktop after editing the config.
+
+### Targeting a different game
+
+The pipeline is not PUBG-specific. To monitor a different Steam title:
+
+1. Find the app ID from the game's Steam store URL (e.g. `https://store.steampowered.com/app/<APP_ID>/`) or [SteamDB](https://steamdb.info/).
+2. Update `.env`:
+
+   ```env
+   STEAM_APP_ID=730            # CS2, as an example
+   ```
+
+3. Restart the worker (`docker compose restart worker`). Reviews and patch notes for the new app start flowing immediately.
+
+Notes:
+- LLM prompts and Slack messages are written generically ("a video game distributed on Steam"); the LLM infers tone from the review content itself rather than from a hard-coded game name.
+- The default `ISSUE_TAGS` (`constants.py`) are tuned for competitive shooters (anti-cheat, server-stability, optimization, …). For non-shooter genres, you'll want to edit that list to match your game's typical issue surfaces.
+- The patch-note collector keys off keywords like `update / patch / hotfix / maintenance` in Steam announcements — that heuristic is genre-agnostic and usually needs no change.
 
 ### 4. Backfill Historical Data (Optional)
 
