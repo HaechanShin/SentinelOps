@@ -122,9 +122,13 @@ async def backfill_reviews(days: int, analyze: bool, analyze_days: int | None = 
         pages=page,
     )
 
-    if analyze and total_stored > 0:
+    if analyze:
         analyze_since = datetime.now(timezone.utc) - timedelta(days=analyze_days or days)
-        logger.info("backfill_analysis_start", posts=total_stored, since=analyze_since.isoformat())
+        logger.info(
+            "backfill_analysis_start",
+            newly_collected=total_stored,
+            since=analyze_since.isoformat(),
+        )
         analyzed = 0
         while True:
             batch = await process_unanalyzed_posts(batch_size=20, since=analyze_since)
