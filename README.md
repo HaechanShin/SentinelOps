@@ -226,6 +226,8 @@ Available at `http://localhost:8001/sse` via SSE transport.
 | `get_patch_notes` | Recent PUBG patch notes (collected from Steam) |
 | `get_alert_history` | Alert history with filters |
 | `get_community_summary` | Community activity summary |
+| `get_top_complaints` | Top complaint topics in a recent window with example posts |
+| `get_response_effectiveness` | Sentiment shift for an issue tag before/after the latest approved response |
 
 These tools serve dual purpose:
 1. **Pipeline internal** — Called via Claude `tool_use` or local JSON planning during context gathering
@@ -265,7 +267,7 @@ sentinelops/
 │   ├── alert_agent.py         # Rolling window alert detector
 │   └── drafting_agent.py      # 3-tone draft generator + LLM evaluator
 ├── mcp_server/                # MCP server (SSE)
-│   └── server.py              # 6 tools over PostgreSQL
+│   └── server.py              # 8 tools over PostgreSQL
 ├── api/                       # FastAPI
 │   ├── main.py
 │   ├── schemas.py
