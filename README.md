@@ -6,6 +6,10 @@ The repo ships with PUBG defaults, but the pipeline is game-agnostic — point i
 
 > Unofficial demo project. Not affiliated with KRAFTON or PUBG Studios.
 
+## ☕ Support
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/soymilkcat)
+
 ## In Action
 
 ### Grafana Dashboard (`localhost:3000`)
