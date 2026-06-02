@@ -223,7 +223,7 @@ Available at `http://localhost:8001/sse` via SSE transport.
 | `get_similar_issues` | Search for similar past community issues |
 | `get_official_responses` | Get approved response templates by issue tag |
 | `get_sentiment_trend` | Hourly sentiment trend data |
-| `get_patch_notes` | Recent PUBG patch notes (collected from Steam) |
+| `get_patch_notes` | Recent patch notes (collected from Steam) |
 | `get_alert_history` | Alert history with filters |
 | `get_community_summary` | Community activity summary |
 | `get_top_complaints` | Top complaint topics in a recent window with example posts |
